@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MRP 시스템 - 파일 업로드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <style>
+        .gradient-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .upload-zone { border: 2px dashed #d1d5db; transition: all 0.2s; }
+        .upload-zone:hover { border-color: #6366f1; background-color: #eef2ff; }
+        .upload-zone.dragover { border-color: #6366f1; background-color: #eef2ff; }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-50">
+    <header class="gradient-header text-white p-4 shadow-lg">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <span class="text-2xl">📦</span>
+                <div>
+                    <h1 class="text-xl font-bold">MRP 시스템</h1>
+                    <p class="text-sm text-white/80">파일 업로드</p>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <a href="mrp.html" class="px-4 py-2 bg-white/20 rounded-lg hover:bg-white/30">MRP 분석</a>
+                <button onclick="handleLogout()" class="px-4 py-2 bg-red-500/80 rounded-lg hover:bg-red-600">로그아웃</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto p-6">
+        <div id="loading" class="hidden text-center py-4">
+            <div class="inline-flex items-center gap-2 text-indigo-600">
+                <svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>데이터 처리 중...</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div class="bg-white rounded-xl shadow p-6">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="text-2xl">📋</span>
+                    <h3 class="font-bold">BOM (자재명세서)</h3>
+                </div>
+                <div id="bom-zone" class="upload-zone rounded-lg p-8 text-center cursor-pointer"
+                     onclick="document.getElementById('bom-input').click()"
+                     ondrop="handleDrop(event,'bom')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
+                    <p class="text-gray-500">클릭하거나 파일을 드래그하세요</p>
+                    <p class="text-xs text-gray-400 mt-2">필수: 모품번, 자품번, 레벨</p>
+                </div>
+                <input type="file" id="bom-input" class="hidden" accept=".xlsx,.xls,.csv" onchange="handleFileSelect(event,'bom')">
+                <div id="bom-info" class="mt-4 hidden"></div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow p-6">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="text-2xl">📦</span>
+                    <h3 class="font-bold">재고 현황</h3>
+                </div>
+                <div id="inventory-zone" class="upload-zone rounded-lg p-8 text-center cursor-pointer"
+                     onclick="document.getElementById('inv-input').click()"
+                     ondrop="handleDrop(event,'inventory')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
+                    <p class="text-gray-500">클릭하거나 파일을 드래그하세요</p>
+                    <p class="text-xs text-gray-400 mt-2">필수: 품번, 재고수량</p>
+                </div>
+                <input type="file" id="inv-input" class="hidden" accept=".xlsx,.xls,.csv" onchange="handleFileSelect(event,'inventory')">
+                <div id="inventory-info" class="mt-4 hidden"></div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow p-6">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="text-2xl">📊</span>
+                    <h3 class="font-bold">영업계획</h3>
+                </div>
+                <div id="sales-zone" class="upload-zone rounded-lg p-8 text-center cursor-pointer"
+                     onclick="document.getElementById('sales-input').click()"
+                     ondrop="handleDrop(event,'sales')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
+                    <p class="text-gray-500">클릭하거나 파일을 드래그하세요</p>
+                    <p class="text-xs text-gray-400 mt-2">필수: 품번, 계획수량</p>
+                </div>
+                <input type="file" id="sales-input" class="hidden" accept=".xlsx,.xls,.csv" onchange="handleFileSelect(event,'sales')">
+                <div id="sales-info" class="mt-4 hidden"></div>
+            </div>
+        </div>
+
+        <div class="text-center">
+            <button onclick="goToMRP()" class="px-8 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 shadow-lg">
+                MRP 분석 시작 →
+            </button>
+        </div>
+    </main>
+
+    <script>
+        // Supabase 설정
+        const SUPABASE_URL = 'https://vnhjfbcufmbbhwevzunc.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZuaGpmYmN1Zm1iYmh3ZXZ6dW5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5MzE2NDEsImV4cCI6MjA4NTUwNzY0MX0.ZZFMYH172ByFDOpBNH_4ehsDNoKMqmLIvdhiCv_27Zo';
+
+        let supabaseClient = null;
+        const uploadedData = { bom: null, inventory: null, sales: null };
+
+        // Supabase 초기화
+        function initSupabase() {
+            if (window.supabase && typeof window.supabase.createClient === 'function') {
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('Supabase 초기화 완료');
+                return true;
+            }
+            return false;
+        }
+
+        // 페이지 로드 시 Supabase 초기화 및 인증 체크
+        async function initAndCheckAuth() {
+            // SDK 로딩 대기
+            let attempts = 0;
+            while (!initSupabase() && attempts < 50) {
+                await new Promise(r => setTimeout(r, 100));
+                attempts++;
+            }
+
+            // 데모 모드 체크
+            if (localStorage.getItem('mrp_demo_mode') === 'true') {
+                loadSavedData(); // 인증 후 데이터 로드
+                return;
+            }
+
+            // Supabase 세션 체크
+            if (supabaseClient) {
+                try {
+                    const { data: { session } } = await supabaseClient.auth.getSession();
+                    if (session?.user) {
+                        loadSavedData(); // 인증 후 데이터 로드
+                        return;
+                    }
+                } catch (e) {
+                    console.error('세션 체크 오류:', e);
+                }
+            }
+
+            // 인증 안됨 → 로그인 페이지로
+            window.location.href = 'login.html';
+        }
+
+        initAndCheckAuth();
+
+        // 저장된 데이터 불러오기
+        async function loadSavedData() {
+            if (!supabaseClient) return;
+
+            showLoading(true);
+            try {
+                for (const type of ['bom', 'inventory', 'sales']) {
+                    const { data, error } = await supabaseClient
+                        .from('mrp_data')
+                        .select('*')
+                        .eq('data_type', type)
+                        .order('updated_at', { ascending: false })
+                        .limit(1);
+
+                    if (!error && data && data.length > 0) {
+                        uploadedData[type] = data[0].data;
+                        showFileInfo(type, data[0].data.name || type, data[0].data.rows || data[0].data.data?.length || 0);
+                    }
+                }
+            } catch (e) {
+                console.error('데이터 로드 오류:', e);
+            }
+            showLoading(false);
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').classList.toggle('hidden', !show);
+        }
+
+        function handleLogout() {
+            localStorage.clear();
+            window.location.href = 'login.html';
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.currentTarget.classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.currentTarget.classList.remove('dragover');
+        }
+
+        function handleDrop(e, type) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('dragover');
+            const file = e.dataTransfer?.files[0];
+            if (file) processFile(file, type);
+        }
+
+        function handleFileSelect(e, type) {
+            const file = e.target.files[0];
+            if (file) processFile(file, type);
+        }
+
+        async function processFile(file, type) {
+            if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
+                alert('Excel/CSV 파일만 가능합니다.');
+                return;
+            }
+
+            showLoading(true);
+            const reader = new FileReader();
+
+            reader.onload = async function(ev) {
+                try {
+                    const wb = XLSX.read(ev.target.result, { type: 'array' });
+                    const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+
+                    const saveData = {
+                        name: file.name,
+                        rows: data.length,
+                        data: data
+                    };
+
+                    // Supabase에 저장
+                    if (supabaseClient) {
+                        // 기존 데이터 삭제 후 새로 저장
+                        await supabaseClient
+                            .from('mrp_data')
+                            .delete()
+                            .eq('data_type', type);
+
+                        const { error } = await supabaseClient
+                            .from('mrp_data')
+                            .insert({
+                                data_type: type,
+                                data: saveData
+                            });
+
+                        if (error) {
+                            console.error('Supabase 저장 오류:', error);
+                            alert('데이터 저장 중 오류가 발생했습니다: ' + error.message);
+                        } else {
+                            uploadedData[type] = saveData;
+                            showFileInfo(type, file.name, data.length);
+                        }
+                    } else {
+                        alert('Supabase 연결이 필요합니다.');
+                    }
+                } catch (err) {
+                    alert('파일 처리 오류: ' + err.message);
+                }
+                showLoading(false);
+            };
+
+            reader.readAsArrayBuffer(file);
+        }
+
+        function showFileInfo(type, name, rows) {
+            const el = document.getElementById(type + '-info');
+            el.innerHTML = `
+                <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                    <span class="text-green-700">✓ ${name} (${rows}행)</span>
+                    <button onclick="deleteFile('${type}')" class="text-red-500 hover:text-red-700">삭제</button>
+                </div>
+            `;
+            el.classList.remove('hidden');
+        }
+
+        async function deleteFile(type) {
+            showLoading(true);
+            if (supabaseClient) {
+                await supabaseClient
+                    .from('mrp_data')
+                    .delete()
+                    .eq('data_type', type);
+            }
+            uploadedData[type] = null;
+            document.getElementById(type + '-info').innerHTML = '';
+            document.getElementById(type + '-info').classList.add('hidden');
+            showLoading(false);
+        }
+
+        function goToMRP() {
+            if (!uploadedData.bom || !uploadedData.inventory || !uploadedData.sales) {
+                alert('모든 파일(BOM, 재고, 영업계획)을 업로드해주세요.');
+                return;
+            }
+            window.location.href = 'mrp.html';
+        }
+    </script>
+</body>
+</html>

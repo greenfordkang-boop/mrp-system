@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MRP 생산계획 분석 시스템 v6</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <style>
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .gradient-header { background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // Supabase 설정
+        const SUPABASE_URL = 'https://vnhjfbcufmbbhwevzunc.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZuaGpmYmN1Zm1iYmh3ZXZ6dW5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5MzE2NDEsImV4cCI6MjA4NTUwNzY0MX0.ZZFMYH172ByFDOpBNH_4ehsDNoKMqmLIvdhiCv_27Zo';
+
+        let supabaseClient = null;
+        const initSupabase = () => {
+            if (window.supabase && typeof window.supabase.createClient === 'function') {
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                return true;
+            }
+            return false;
+        };
+        initSupabase();
+
+        // 아이콘 컴포넌트
+        const Icons = {
+            Search: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>,
+            Download: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>,
+            ChevronUp: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>,
+            ChevronDown: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>,
+            X: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>,
+            Zap: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
+            SortAsc: () => <svg className="w-3 h-3 inline ml-1" fill="currentColor" viewBox="0 0 20 20"><path d="M5 10l5-5 5 5H5z"/></svg>,
+            SortDesc: () => <svg className="w-3 h-3 inline ml-1" fill="currentColor" viewBox="0 0 20 20"><path d="M5 10l5 5 5-5H5z"/></svg>
+        };
+
+        // 정렬 아이콘 컴포넌트
+        const SortIcon = ({ field, currentField, direction }) => {
+            if (field !== currentField) return <span className="text-gray-300 ml-1">↕</span>;
+            return direction === 'asc' ? <Icons.SortAsc /> : <Icons.SortDesc />;
+        };
+
+        // 상태 배지 컴포넌트
+        const StatusBadge = ({ status }) => {
+            const styles = {
+                full: 'bg-green-100 text-green-700',
+                partial: 'bg-yellow-100 text-yellow-700',
+                none: 'bg-red-100 text-red-700'
+            };
+            const labels = { full: '생산가능', partial: '일부가능', none: '생산불가' };
+            return <span className={`px-2 py-1 rounded text-xs font-medium ${styles[status]}`}>{labels[status]}</span>;
+        };
+
+        // ========== 긴급오더 생산가능조회 컴포넌트 ==========
+        function UrgentOrderCheck({ salesPlan, bomRelations, inventory }) {
+            const [partNo, setPartNo] = useState('');
+            const [productName, setProductName] = useState('');
+            const [orderQty, setOrderQty] = useState('');
+            const [result, setResult] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [showLevel1Detail, setShowLevel1Detail] = useState(false);
+            const [showAllLevelDetail, setShowAllLevelDetail] = useState(false);
+            const [nameSearchResults, setNameSearchResults] = useState([]);
+            const [isExpanded, setIsExpanded] = useState(true);
+
+            // 레벨1 필터/정렬
+            const [level1Search, setLevel1Search] = useState('');
+            const [level1SortField, setLevel1SortField] = useState('partNo');
+            const [level1SortDir, setLevel1SortDir] = useState('asc');
+
+            // 전체레벨 필터/정렬
+            const [allLevelSearch, setAllLevelSearch] = useState('');
+            const [allLevelSortField, setAllLevelSortField] = useState('shortage');
+            const [allLevelSortDir, setAllLevelSortDir] = useState('desc');
+
+            const handleSort = (field, currentField, setField, currentDir, setDir) => {
+                if (currentField === field) setDir(currentDir === 'asc' ? 'desc' : 'asc');
+                else { setField(field); setDir('asc'); }
+            };
+
+            const filterAndSort = (data, search, sortField, sortDir) => {
+                let filtered = [...data];
+                if (search) {
+                    const term = search.toLowerCase();
+                    filtered = filtered.filter(m => m.partNo?.toLowerCase().includes(term) || m.partName?.toLowerCase().includes(term));
+                }
+                filtered.sort((a, b) => {
+                    let aVal = a[sortField], bVal = b[sortField];
+                    if (typeof aVal === 'string') { aVal = aVal?.toLowerCase(); bVal = bVal?.toLowerCase(); }
+                    if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+                    if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+                    return 0;
+                });
+                return filtered;
+            };
+
+            const findByPartNo = (searchTerm) => {
+                const term = searchTerm.toLowerCase().trim();
+                return salesPlan.find(p => p.partNo?.toLowerCase() === term || p.customerPN?.toLowerCase() === term);
+            };
+
+            const searchByName = (searchTerm) => {
+                const term = searchTerm.toLowerCase().trim();
+                if (term.length < 2) return [];
+                return salesPlan.filter(p => p.productName?.toLowerCase().includes(term)).slice(0, 10);
+            };
+
+            const handleNameChange = (value) => {
+                setProductName(value);
+                setPartNo('');
+                setNameSearchResults(value.length >= 2 ? searchByName(value) : []);
+            };
+
+            const selectFromNameSearch = (item) => {
+                setPartNo(item.partNo);
+                setProductName(item.productName);
+                setNameSearchResults([]);
+            };
+
+            const expandBomAllLevels = (parentPn, parentQty, visited = new Set()) => {
+                if (visited.has(parentPn) || !bomRelations[parentPn]) return [];
+                visited.add(parentPn);
+                let allMaterials = [];
+                (bomRelations[parentPn] || []).forEach(child => {
+                    const totalRequired = parentQty * child.qty;
+                    const stock = inventory[child.childPn] || 0;
+                    allMaterials.push({
+                        partNo: child.childPn, partName: child.childName || child.childPn,
+                        level: child.level, usage: child.qty, totalRequired, stockQty: stock,
+                        shortage: Math.max(0, totalRequired - stock), supplier: child.supplier || '(미지정)',
+                        hasSubBom: !!bomRelations[child.childPn]
+                    });
+                    const subMaterials = expandBomAllLevels(child.childPn, totalRequired, new Set(visited));
+                    allMaterials.push(...subMaterials);
+                });
+                return allMaterials;
+            };
+
+            const handleCheck = () => {
+                if (!partNo || !orderQty) return;
+                setLoading(true);
+                setTimeout(() => {
+                    const qty = parseInt(orderQty);
+                    const product = findByPartNo(partNo);
+                    if (!product) { setResult({ error: '제품을 찾을 수 없습니다.' }); setLoading(false); return; }
+
+                    const level1Children = (bomRelations[partNo] || []).filter(c => c.level === 1);
+                    const level1Materials = level1Children.map(child => {
+                        const required = qty * child.qty;
+                        const stock = inventory[child.childPn] || 0;
+                        return {
+                            partNo: child.childPn, partName: child.childName || child.childPn,
+                            usage: child.qty, required, stock, shortage: Math.max(0, required - stock),
+                            possible: child.qty > 0 ? Math.floor(stock / child.qty) : 0,
+                            hasBom: !!bomRelations[child.childPn], supplier: child.supplier || '(미지정)'
+                        };
+                    });
+                    const level1PossibleQty = level1Materials.length > 0 ? Math.min(...level1Materials.map(m => m.possible)) : qty;
+
+                    const allLevelMaterials = expandBomAllLevels(partNo, qty, new Set());
+                    const allLevelPossibleQty = allLevelMaterials.length > 0
+                        ? Math.min(...allLevelMaterials.map(m => m.stockQty >= m.totalRequired ? qty : Math.floor(m.stockQty / (m.totalRequired / qty) || 0)))
+                        : qty;
+
+                    setResult({
+                        product, orderQty: qty,
+                        level1Analysis: { materials: level1Materials, possibleQty: Math.max(0, level1PossibleQty), shortageCount: level1Materials.filter(m => m.shortage > 0).length, materialCount: level1Materials.length },
+                        allLevelAnalysis: { materials: allLevelMaterials, possibleQty: Math.max(0, allLevelPossibleQty), shortageCount: allLevelMaterials.filter(m => m.shortage > 0).length, materialCount: allLevelMaterials.length }
+                    });
+                    setLoading(false);
+                }, 300);
+            };
+
+            const exportLevel1Excel = () => {
+                if (!result?.level1Analysis?.materials) return;
+                const data = filterAndSort(result.level1Analysis.materials, level1Search, level1SortField, level1SortDir).map(m => ({
+                    '자재코드': m.partNo, '자재명': m.partName, '협력사': m.supplier,
+                    '단위수량': m.usage, '소요량': m.required, '재고': m.stock, '과부족': m.shortage > 0 ? -m.shortage : 0
+                }));
+                const ws = XLSX.utils.json_to_sheet(data);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, '레벨1자재');
+                XLSX.writeFile(wb, '긴급오더_레벨1자재.xlsx');
+            };
+
+            const exportAllLevelExcel = () => {
+                if (!result?.allLevelAnalysis?.materials) return;
+                const data = filterAndSort(result.allLevelAnalysis.materials.filter(m => m.shortage > 0), allLevelSearch, allLevelSortField, allLevelSortDir).map(m => ({
+                    '자재코드': m.partNo, '자재명': m.partName, '레벨': m.level, '협력사': m.supplier,
+                    '소요량': m.totalRequired, '재고': m.stockQty, '부족량': m.shortage
+                }));
+                const ws = XLSX.utils.json_to_sheet(data);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, '전체레벨부족자재');
+                XLSX.writeFile(wb, '긴급오더_전체레벨부족자재.xlsx');
+            };
+
+            const clearForm = () => { setPartNo(''); setProductName(''); setOrderQty(''); setResult(null); setNameSearchResults([]); };
+
+            return (
+                <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl shadow-lg border border-indigo-100 mb-6 overflow-hidden">
+                    <div className="p-4 bg-indigo-100/50 flex items-center justify-between cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white"><Icons.Zap /></div>
+                            <div>
+                                <h2 className="text-lg font-bold text-indigo-900">긴급 오더 생산가능 조회</h2>
+                                <p className="text-sm text-indigo-600">레벨1 / 전체레벨 기준 생산가능 수량 비교</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2 text-xs">
+                                <span className="w-3 h-3 rounded bg-blue-500"></span> 레벨1
+                                <span className="w-3 h-3 rounded bg-purple-500 ml-2"></span> 전체레벨
+                            </div>
+                            {isExpanded ? <Icons.ChevronUp /> : <Icons.ChevronDown />}
+                        </div>
+                    </div>
+
+                    {isExpanded && (
+                        <div className="p-6">
+                            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-4 items-end">
+                                <div className="md:col-span-3">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">품번 / 고객사 P/N</label>
+                                    <input type="text" value={partNo} onChange={e => setPartNo(e.target.value)} placeholder="품번 입력"
+                                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+                                </div>
+                                <div className="md:col-span-1 text-center text-gray-400 font-medium">OR</div>
+                                <div className="md:col-span-4 relative">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">품명 검색</label>
+                                    <input type="text" value={productName} onChange={e => handleNameChange(e.target.value)} placeholder="품명 입력 (2자 이상)"
+                                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+                                    {nameSearchResults.length > 0 && (
+                                        <div className="absolute z-20 w-full bg-white border rounded-xl shadow-lg mt-1 max-h-60 overflow-auto">
+                                            {nameSearchResults.map((item, idx) => (
+                                                <div key={idx} onClick={() => selectFromNameSearch(item)} className="px-4 py-3 hover:bg-indigo-50 cursor-pointer border-b">
+                                                    <div className="font-medium text-gray-800">{item.productName}</div>
+                                                    <div className="text-xs text-gray-500">{item.partNo}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">오더 수량 <span className="text-red-500">*</span></label>
+                                    <input type="number" value={orderQty} onChange={e => setOrderQty(e.target.value)} placeholder="수량"
+                                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+                                </div>
+                                <div className="md:col-span-2 flex gap-2">
+                                    <button onClick={handleCheck} disabled={loading || !partNo || !orderQty}
+                                        className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                                        🔍 조회
+                                    </button>
+                                    {(partNo || productName || orderQty) && (
+                                        <button onClick={clearForm} className="px-3 py-3 text-gray-500 hover:text-gray-700"><Icons.X /></button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {!result && (
+                                <div className="bg-gray-50 rounded-xl p-8 text-center">
+                                    <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4"><span className="text-2xl">🔒</span></div>
+                                    <p className="text-gray-600 font-medium mb-2">품번/품명과 수량을 입력하세요</p>
+                                </div>
+                            )}
+
+                            {result && !result.error && (
+                                <div className="space-y-4 fade-in">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-gradient-to-br from-blue-100 to-blue-200 rounded-xl p-5">
+                                            <p className="text-sm text-blue-700 mb-1">레벨1 직접자재 기준</p>
+                                            <p className="text-4xl font-bold text-blue-800">{result.level1Analysis.possibleQty.toLocaleString()}<span className="text-lg">개</span></p>
+                                            <p className="text-sm text-blue-600 mt-2">부족자재 <span className="font-bold text-red-600">{result.level1Analysis.shortageCount}종</span> / 전체 {result.level1Analysis.materialCount}종</p>
+                                        </div>
+                                        <div className="bg-gradient-to-br from-purple-100 to-purple-200 rounded-xl p-5">
+                                            <p className="text-sm text-purple-700 mb-1">전체레벨 BOM전개 기준</p>
+                                            <p className="text-4xl font-bold text-purple-800">{result.allLevelAnalysis.possibleQty.toLocaleString()}<span className="text-lg">개</span></p>
+                                            <p className="text-sm text-purple-600 mt-2">부족자재 <span className="font-bold text-red-600">{result.allLevelAnalysis.shortageCount}종</span> / 전체 {result.allLevelAnalysis.materialCount}종</p>
+                                        </div>
+                                    </div>
+
+                                    {/* 레벨1 상세 - 접기/펼치기 + 필터/정렬 + 다운로드 */}
+                                    <div className="bg-white rounded-xl shadow">
+                                        <div className="p-4 border-b cursor-pointer flex justify-between items-center" onClick={() => setShowLevel1Detail(!showLevel1Detail)}>
+                                            <span className="font-bold text-blue-800">📦 레벨1 직접자재 현황 ({result.level1Analysis.materialCount}종)</span>
+                                            <span>{showLevel1Detail ? '▲' : '▼'}</span>
+                                        </div>
+                                        {showLevel1Detail && (
+                                            <div className="p-4">
+                                                <div className="flex gap-2 mb-3 flex-wrap">
+                                                    <div className="relative flex-1 min-w-[200px]">
+                                                        <input type="text" placeholder="자재코드, 자재명 검색..." value={level1Search} onChange={e => setLevel1Search(e.target.value)}
+                                                            className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm" />
+                                                        <div className="absolute left-3 top-2.5 text-gray-400"><Icons.Search /></div>
+                                                    </div>
+                                                    <button onClick={exportLevel1Excel} className="px-3 py-2 bg-green-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-green-700">
+                                                        <Icons.Download /> Excel
+                                                    </button>
+                                                </div>
+                                                <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                                                    <table className="w-full text-sm">
+                                                        <thead className="bg-blue-50 sticky top-0">
+                                                            <tr>
+                                                                <th className="px-3 py-2 text-left cursor-pointer hover:bg-blue-100" onClick={() => handleSort('partNo', level1SortField, setLevel1SortField, level1SortDir, setLevel1SortDir)}>자재코드 <SortIcon field="partNo" currentField={level1SortField} direction={level1SortDir} /></th>
+                                                                <th className="px-3 py-2 text-left cursor-pointer hover:bg-blue-100" onClick={() => handleSort('partName', level1SortField, setLevel1SortField, level1SortDir, setLevel1SortDir)}>자재명 <SortIcon field="partName" currentField={level1SortField} direction={level1SortDir} /></th>
+                                                                <th className="px-3 py-2 text-center">하위BOM</th>
+                                                                <th className="px-3 py-2 text-right cursor-pointer hover:bg-blue-100" onClick={() => handleSort('usage', level1SortField, setLevel1SortField, level1SortDir, setLevel1SortDir)}>단위수량 <SortIcon field="usage" currentField={level1SortField} direction={level1SortDir} /></th>
+                                                                <th className="px-3 py-2 text-right cursor-pointer hover:bg-blue-100" onClick={() => handleSort('required', level1SortField, setLevel1SortField, level1SortDir, setLevel1SortDir)}>소요량 <SortIcon field="required" currentField={level1SortField} direction={level1SortDir} /></th>
+                                                                <th className="px-3 py-2 text-right cursor-pointer hover:bg-blue-100" onClick={() => handleSort('stock', level1SortField, setLevel1SortField, level1SortDir, setLevel1SortDir)}>재고 <SortIcon field="stock" currentField={level1SortField} direction={level1SortDir} /></th>
+                                                                <th className="px-3 py-2 text-right cursor-pointer hover:bg-blue-100" onClick={() => handleSort('shortage', level1SortField, setLevel1SortField, level1SortDir, setLevel1SortDir)}>과부족 <SortIcon field="shortage" currentField={level1SortField} direction={level1SortDir} /></th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {filterAndSort(result.level1Analysis.materials, level1Search, level1SortField, level1SortDir).map((m, idx) => (
+                                                                <tr key={idx} className={m.shortage > 0 ? 'bg-red-50' : 'bg-green-50'}>
+                                                                    <td className="px-3 py-2 font-mono">{m.partNo}</td>
+                                                                    <td className="px-3 py-2">{m.partName}</td>
+                                                                    <td className="px-3 py-2 text-center">{m.hasBom ? '🔗' : '-'}</td>
+                                                                    <td className="px-3 py-2 text-right">{m.usage}</td>
+                                                                    <td className="px-3 py-2 text-right">{m.required?.toLocaleString()}</td>
+                                                                    <td className="px-3 py-2 text-right">{m.stock?.toLocaleString()}</td>
+                                                                    <td className={`px-3 py-2 text-right font-bold ${m.shortage > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                                                        {m.shortage > 0 ? `-${m.shortage.toLocaleString()}` : '✓'}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* 전체레벨 부족자재 - 접기/펼치기 + 필터/정렬 + 다운로드 */}
+                                    {result.allLevelAnalysis.shortageCount > 0 && (
+                                        <div className="bg-white rounded-xl shadow">
+                                            <div className="p-4 border-b cursor-pointer flex justify-between items-center" onClick={() => setShowAllLevelDetail(!showAllLevelDetail)}>
+                                                <span className="font-bold text-red-800">⚠️ 전체 레벨 부족자재 상세 ({result.allLevelAnalysis.shortageCount}종)</span>
+                                                <span>{showAllLevelDetail ? '▲' : '▼'}</span>
+                                            </div>
+                                            {showAllLevelDetail && (
+                                                <div className="p-4">
+                                                    <div className="flex gap-2 mb-3 flex-wrap">
+                                                        <div className="relative flex-1 min-w-[200px]">
+                                                            <input type="text" placeholder="자재코드, 자재명 검색..." value={allLevelSearch} onChange={e => setAllLevelSearch(e.target.value)}
+                                                                className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm" />
+                                                            <div className="absolute left-3 top-2.5 text-gray-400"><Icons.Search /></div>
+                                                        </div>
+                                                        <button onClick={exportAllLevelExcel} className="px-3 py-2 bg-green-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-green-700">
+                                                            <Icons.Download /> Excel
+                                                        </button>
+                                                    </div>
+                                                    <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                                                        <table className="w-full text-sm">
+                                                            <thead className="bg-red-50 sticky top-0">
+                                                                <tr>
+                                                                    <th className="px-3 py-2 text-left cursor-pointer hover:bg-red-100" onClick={() => handleSort('partNo', allLevelSortField, setAllLevelSortField, allLevelSortDir, setAllLevelSortDir)}>자재코드 <SortIcon field="partNo" currentField={allLevelSortField} direction={allLevelSortDir} /></th>
+                                                                    <th className="px-3 py-2 text-left cursor-pointer hover:bg-red-100" onClick={() => handleSort('partName', allLevelSortField, setAllLevelSortField, allLevelSortDir, setAllLevelSortDir)}>자재명 <SortIcon field="partName" currentField={allLevelSortField} direction={allLevelSortDir} /></th>
+                                                                    <th className="px-3 py-2 text-center cursor-pointer hover:bg-red-100" onClick={() => handleSort('level', allLevelSortField, setAllLevelSortField, allLevelSortDir, setAllLevelSortDir)}>레벨 <SortIcon field="level" currentField={allLevelSortField} direction={allLevelSortDir} /></th>
+                                                                    <th className="px-3 py-2 text-left cursor-pointer hover:bg-red-100" onClick={() => handleSort('supplier', allLevelSortField, setAllLevelSortField, allLevelSortDir, setAllLevelSortDir)}>협력사 <SortIcon field="supplier" currentField={allLevelSortField} direction={allLevelSortDir} /></th>
+                                                                    <th className="px-3 py-2 text-right cursor-pointer hover:bg-red-100" onClick={() => handleSort('totalRequired', allLevelSortField, setAllLevelSortField, allLevelSortDir, setAllLevelSortDir)}>소요량 <SortIcon field="totalRequired" currentField={allLevelSortField} direction={allLevelSortDir} /></th>
+                                                                    <th className="px-3 py-2 text-right cursor-pointer hover:bg-red-100" onClick={() => handleSort('stockQty', allLevelSortField, setAllLevelSortField, allLevelSortDir, setAllLevelSortDir)}>재고 <SortIcon field="stockQty" currentField={allLevelSortField} direction={allLevelSortDir} /></th>
+                                                                    <th className="px-3 py-2 text-right cursor-pointer hover:bg-red-100" onClick={() => handleSort('shortage', allLevelSortField, setAllLevelSortField, allLevelSortDir, setAllLevelSortDir)}>부족량 <SortIcon field="shortage" currentField={allLevelSortField} direction={allLevelSortDir} /></th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {filterAndSort(result.allLevelAnalysis.materials.filter(m => m.shortage > 0), allLevelSearch, allLevelSortField, allLevelSortDir).map((m, idx) => (
+                                                                    <tr key={idx} className="bg-red-50 hover:bg-red-100">
+                                                                        <td className="px-3 py-2 font-mono">{m.partNo}</td>
+                                                                        <td className="px-3 py-2">{m.partName}</td>
+                                                                        <td className="px-3 py-2 text-center">L{m.level}</td>
+                                                                        <td className="px-3 py-2">{m.supplier}</td>
+                                                                        <td className="px-3 py-2 text-right">{m.totalRequired?.toLocaleString()}</td>
+                                                                        <td className="px-3 py-2 text-right">{m.stockQty?.toLocaleString()}</td>
+                                                                        <td className="px-3 py-2 text-right font-bold text-red-600">-{m.shortage?.toLocaleString()}</td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {result?.error && <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700">{result.error}</div>}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ========== 영업계획 제품 선택 컴포넌트 ==========
+        function SalesPlanSelection({ salesPlan, onSelectionChange, selectedParts, mrpResults, onAnalyze, showAnalysisButton }) {
+            const [searchTerm, setSearchTerm] = useState('');
+            const [customerFilter, setCustomerFilter] = useState('전체');
+            const [isExpanded, setIsExpanded] = useState(true);
+
+            const customers = useMemo(() => {
+                const list = [...new Set(salesPlan.map(item => item.customerName).filter(Boolean))];
+                return ['전체', ...list.sort()];
+            }, [salesPlan]);
+
+            const filteredSales = useMemo(() => {
+                return salesPlan.filter(item => {
+                    const matchSearch = !searchTerm ||
+                        item.partNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        item.productName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        item.customerPN?.toLowerCase().includes(searchTerm.toLowerCase());
+                    const matchCustomer = customerFilter === '전체' || item.customerName === customerFilter;
+                    return matchSearch && matchCustomer;
+                });
+            }, [salesPlan, searchTerm, customerFilter]);
+
+            const toggleSelection = (partNo) => {
+                const newSelection = selectedParts.includes(partNo)
+                    ? selectedParts.filter(p => p !== partNo)
+                    : [...selectedParts, partNo];
+                onSelectionChange(newSelection);
+            };
+
+            const selectAll = () => onSelectionChange(filteredSales.map(item => item.partNo));
+            const clearSelection = () => onSelectionChange([]);
+
+            return (
+                <div className="bg-white rounded-2xl shadow-lg overflow-hidden mb-6">
+                    <div className="p-4 bg-gray-50 flex items-center justify-between cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+                        <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">1</span>
+                            <h2 className="text-lg font-bold text-gray-800">영업계획 조회 - 분석할 제품 선택</h2>
+                            <span className="text-sm text-blue-600 font-medium ml-2">{selectedParts.length}건 선택됨</span>
+                        </div>
+                        {isExpanded ? <Icons.ChevronUp /> : <Icons.ChevronDown />}
+                    </div>
+
+                    {isExpanded && (
+                        <div className="p-6">
+                            <div className="flex gap-4 mb-4 flex-wrap">
+                                <div className="flex-1 min-w-[200px] relative">
+                                    <input type="text" placeholder="품번, 제품명, 고객사 P/N 검색..." value={searchTerm}
+                                        onChange={e => setSearchTerm(e.target.value)}
+                                        className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500" />
+                                    <div className="absolute left-3 top-3.5 text-gray-400"><Icons.Search /></div>
+                                </div>
+                                <select value={customerFilter} onChange={e => setCustomerFilter(e.target.value)}
+                                    className="px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 min-w-[150px]">
+                                    {customers.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                                <button onClick={selectAll} className="px-4 py-3 border-2 border-blue-500 text-blue-600 rounded-xl font-medium hover:bg-blue-50">전체 선택</button>
+                                <button onClick={clearSelection} className="px-4 py-3 border border-gray-300 text-gray-600 rounded-xl font-medium hover:bg-gray-50">선택 해제</button>
+                            </div>
+
+                            <div className="border rounded-xl overflow-hidden max-h-[400px] overflow-y-auto">
+                                <table className="w-full">
+                                    <thead className="bg-gray-50 sticky top-0">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left w-12">
+                                                <input type="checkbox" checked={selectedParts.length === filteredSales.length && filteredSales.length > 0}
+                                                    onChange={() => selectedParts.length === filteredSales.length ? clearSelection() : selectAll()}
+                                                    className="w-5 h-5 rounded border-gray-300 text-blue-600" />
+                                            </th>
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">품번</th>
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">제품명</th>
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">고객사</th>
+                                            <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">계획수량</th>
+                                            <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">상태</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y">
+                                        {filteredSales.map((item, idx) => {
+                                            const result = mrpResults[item.partNo];
+                                            return (
+                                                <tr key={idx} className={`hover:bg-gray-50 cursor-pointer ${selectedParts.includes(item.partNo) ? 'bg-blue-50' : ''}`} onClick={() => toggleSelection(item.partNo)}>
+                                                    <td className="px-4 py-3">
+                                                        <input type="checkbox" checked={selectedParts.includes(item.partNo)} onChange={() => {}}
+                                                            className="w-5 h-5 rounded border-gray-300 text-blue-600" />
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="font-mono text-sm">{item.partNo}</div>
+                                                        <div className="text-xs text-gray-400">{item.customerPN}</div>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-gray-700">{item.productName}</td>
+                                                    <td className="px-4 py-3 text-gray-600">{item.customerName}</td>
+                                                    <td className="px-4 py-3 text-right font-medium">{item.orderQty?.toLocaleString()}</td>
+                                                    <td className="px-4 py-3 text-center">{result && <StatusBadge status={result.status} />}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* 하단: 선택 건수 + 분석 결과 보기 버튼 */}
+                            {selectedParts.length > 0 && (
+                                <div className="mt-6 pt-4 border-t flex items-center justify-between">
+                                    <div className="text-blue-600 font-medium">
+                                        <span className="text-lg font-bold">{selectedParts.length}</span>건 선택됨
+                                    </div>
+                                    <button onClick={onAnalyze}
+                                        className="px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold shadow-lg hover:from-blue-700 hover:to-indigo-700 transition-all">
+                                        분석 결과 보기
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ========== 분석 결과 컴포넌트 (필터/정렬/다운로드 완비) ==========
+        function AnalysisResults({ selectedParts, mrpResults, salesPlan }) {
+            const [isExpanded, setIsExpanded] = useState(true);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [statusFilter, setStatusFilter] = useState('전체');
+            const [customerFilter, setCustomerFilter] = useState('전체');
+            const [sortField, setSortField] = useState('status');
+            const [sortDir, setSortDir] = useState('desc');
+
+            const customers = useMemo(() => {
+                const list = [...new Set(salesPlan.map(item => item.customerName).filter(Boolean))];
+                return ['전체', ...list.sort()];
+            }, [salesPlan]);
+
+            const selectedResults = selectedParts.map(p => mrpResults[p]).filter(Boolean);
+
+            const stats = {
+                total: selectedResults.length,
+                full: selectedResults.filter(r => r.status === 'full').length,
+                partial: selectedResults.filter(r => r.status === 'partial').length,
+                none: selectedResults.filter(r => r.status === 'none').length
+            };
+
+            const filteredAndSorted = useMemo(() => {
+                let filtered = [...selectedResults];
+                if (searchTerm) {
+                    const term = searchTerm.toLowerCase();
+                    filtered = filtered.filter(r => r.partNo?.toLowerCase().includes(term) || r.productName?.toLowerCase().includes(term));
+                }
+                if (statusFilter !== '전체') {
+                    const statusMap = { '생산가능': 'full', '일부가능': 'partial', '생산불가': 'none' };
+                    filtered = filtered.filter(r => r.status === statusMap[statusFilter]);
+                }
+                if (customerFilter !== '전체') {
+                    filtered = filtered.filter(r => r.customerName === customerFilter);
+                }
+                filtered.sort((a, b) => {
+                    let aVal = a[sortField], bVal = b[sortField];
+                    if (typeof aVal === 'string') { aVal = aVal?.toLowerCase(); bVal = bVal?.toLowerCase(); }
+                    if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+                    if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+                    return 0;
+                });
+                return filtered;
+            }, [selectedResults, searchTerm, statusFilter, customerFilter, sortField, sortDir]);
+
+            const handleSort = (field) => {
+                if (sortField === field) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+                else { setSortField(field); setSortDir('asc'); }
+            };
+
+            const exportToExcel = () => {
+                const data = filteredAndSorted.map(r => ({
+                    '품번': r.partNo, '품명': r.productName, '고객사': r.customerName,
+                    '주문수량': r.orderQty, '생산가능수량': r.possibleQty,
+                    '커버율(%)': r.minCoverage, '부족수량': r.shortageQty,
+                    '부족자재수': r.shortageCount,
+                    '상태': r.status === 'full' ? '생산가능' : r.status === 'partial' ? '일부가능' : '생산불가',
+                    '부족자재': r.materials?.filter(m => m.status === 'shortage').map(m => m.partNo).join(', ') || ''
+                }));
+                const ws = XLSX.utils.json_to_sheet(data);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'MRP분석결과');
+                XLSX.writeFile(wb, 'MRP_분석결과.xlsx');
+            };
+
+            const clearFilters = () => { setSearchTerm(''); setStatusFilter('전체'); setCustomerFilter('전체'); };
+
+            if (selectedParts.length === 0) return null;
+
+            return (
+                <div className="bg-white rounded-2xl shadow-lg overflow-hidden mb-6 fade-in">
+                    <div className="p-4 bg-gray-50 flex items-center justify-between cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+                        <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 bg-green-500 text-white rounded-full flex items-center justify-center text-sm font-bold">2</span>
+                            <h2 className="text-lg font-bold text-gray-800">생산 가능 수량 분석 결과</h2>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button onClick={(e) => { e.stopPropagation(); exportToExcel(); }} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
+                                <Icons.Download /> Excel 다운로드
+                            </button>
+                            {isExpanded ? <Icons.ChevronUp /> : <Icons.ChevronDown />}
+                        </div>
+                    </div>
+
+                    {isExpanded && (
+                        <div className="p-6">
+                            {/* 요약 카드 - 클릭시 필터 */}
+                            <div className="grid grid-cols-4 gap-4 mb-6">
+                                <div className="bg-blue-50 rounded-xl p-4 text-center cursor-pointer hover:bg-blue-100 transition-colors" onClick={() => setStatusFilter('전체')}>
+                                    <p className="text-sm text-gray-500">분석 대상</p>
+                                    <p className="text-2xl font-bold text-blue-600">{stats.total}</p>
+                                </div>
+                                <div className="bg-green-50 rounded-xl p-4 text-center cursor-pointer hover:bg-green-100 transition-colors" onClick={() => setStatusFilter('생산가능')}>
+                                    <p className="text-sm text-gray-500">생산가능</p>
+                                    <p className="text-2xl font-bold text-green-600">{stats.full}</p>
+                                </div>
+                                <div className="bg-yellow-50 rounded-xl p-4 text-center cursor-pointer hover:bg-yellow-100 transition-colors" onClick={() => setStatusFilter('일부가능')}>
+                                    <p className="text-sm text-gray-500">일부가능</p>
+                                    <p className="text-2xl font-bold text-yellow-600">{stats.partial}</p>
+                                </div>
+                                <div className="bg-red-50 rounded-xl p-4 text-center cursor-pointer hover:bg-red-100 transition-colors" onClick={() => setStatusFilter('생산불가')}>
+                                    <p className="text-sm text-gray-500">생산불가</p>
+                                    <p className="text-2xl font-bold text-red-600">{stats.none}</p>
+                                </div>
+                            </div>
+
+                            {/* 필터 영역 */}
+                            <div className="flex gap-4 mb-4 flex-wrap items-center bg-gray-50 p-3 rounded-lg">
+                                <div className="flex-1 min-w-[180px] relative">
+                                    <input type="text" placeholder="제품명, 품번 검색..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                                        className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm" />
+                                    <div className="absolute left-3 top-2.5 text-gray-400"><Icons.Search /></div>
+                                </div>
+                                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-3 py-2 border rounded-lg text-sm">
+                                    <option value="전체">상태: 전체</option>
+                                    <option value="생산가능">생산가능</option>
+                                    <option value="일부가능">일부가능</option>
+                                    <option value="생산불가">생산불가</option>
+                                </select>
+                                <select value={customerFilter} onChange={e => setCustomerFilter(e.target.value)} className="px-3 py-2 border rounded-lg text-sm">
+                                    {customers.map(c => <option key={c} value={c}>{c === '전체' ? '고객사: 전체' : c}</option>)}
+                                </select>
+                                {(searchTerm || statusFilter !== '전체' || customerFilter !== '전체') && (
+                                    <button onClick={clearFilters} className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 flex items-center gap-1">
+                                        <Icons.X /> 필터 초기화
+                                    </button>
+                                )}
+                                <span className="text-sm text-gray-500 ml-auto">검색결과: <strong className="text-green-600">{filteredAndSorted.length}</strong>건</span>
+                            </div>
+
+                            {/* 결과 테이블 */}
+                            <div className="border rounded-xl overflow-hidden max-h-[400px] overflow-y-auto">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-100 sticky top-0">
+                                        <tr>
+                                            <th className="px-3 py-3 text-left cursor-pointer hover:bg-gray-200 select-none" onClick={() => handleSort('productName')}>제품 <SortIcon field="productName" currentField={sortField} direction={sortDir} /></th>
+                                            <th className="px-3 py-3 text-left cursor-pointer hover:bg-gray-200 select-none" onClick={() => handleSort('customerName')}>고객사 <SortIcon field="customerName" currentField={sortField} direction={sortDir} /></th>
+                                            <th className="px-3 py-3 text-right cursor-pointer hover:bg-gray-200 select-none" onClick={() => handleSort('orderQty')}>주문수량 <SortIcon field="orderQty" currentField={sortField} direction={sortDir} /></th>
+                                            <th className="px-3 py-3 text-right cursor-pointer hover:bg-gray-200 select-none" onClick={() => handleSort('possibleQty')}>생산가능 <SortIcon field="possibleQty" currentField={sortField} direction={sortDir} /></th>
+                                            <th className="px-3 py-3 text-center cursor-pointer hover:bg-gray-200 select-none" onClick={() => handleSort('minCoverage')}>커버율 <SortIcon field="minCoverage" currentField={sortField} direction={sortDir} /></th>
+                                            <th className="px-3 py-3 text-right cursor-pointer hover:bg-gray-200 select-none" onClick={() => handleSort('shortageQty')}>부족수량 <SortIcon field="shortageQty" currentField={sortField} direction={sortDir} /></th>
+                                            <th className="px-3 py-3 text-center cursor-pointer hover:bg-gray-200 select-none" onClick={() => handleSort('status')}>상태 <SortIcon field="status" currentField={sortField} direction={sortDir} /></th>
+                                            <th className="px-3 py-3 text-left">부족자재</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y">
+                                        {filteredAndSorted.map((r, idx) => (
+                                            <tr key={idx} className="hover:bg-gray-50">
+                                                <td className="px-3 py-3">
+                                                    <div className="font-medium text-gray-800">{r.productName}</div>
+                                                    <div className="text-xs text-gray-400 font-mono">{r.partNo}</div>
+                                                </td>
+                                                <td className="px-3 py-3 text-gray-600">{r.customerName}</td>
+                                                <td className="px-3 py-3 text-right">{r.orderQty?.toLocaleString()}</td>
+                                                <td className="px-3 py-3 text-right font-bold text-green-600">{r.possibleQty?.toLocaleString()}</td>
+                                                <td className="px-3 py-3 text-center">
+                                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${r.minCoverage >= 100 ? 'bg-green-100 text-green-800' : r.minCoverage >= 50 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                                                        {(r.minCoverage || 0).toFixed(1)}%
+                                                    </span>
+                                                </td>
+                                                <td className="px-3 py-3 text-right font-medium text-red-600">{r.shortageQty > 0 ? r.shortageQty?.toLocaleString() : '-'}</td>
+                                                <td className="px-3 py-3 text-center"><StatusBadge status={r.status} /></td>
+                                                <td className="px-3 py-3 text-sm">
+                                                    {r.shortageCount > 0 ? (
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {r.materials?.filter(m => m.status === 'shortage').slice(0, 3).map((m, i) => (
+                                                                <span key={i} className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">{m.partNo}</span>
+                                                            ))}
+                                                            {r.shortageCount > 3 && <span className="text-xs text-gray-500">+{r.shortageCount - 3}건</span>}
+                                                        </div>
+                                                    ) : '-'}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ========== 협력사별 부족수량 조회 컴포넌트 ==========
+        function SupplierShortageView({ supplierShortage, selectedParts, mrpResults }) {
+            const [isExpanded, setIsExpanded] = useState(true);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [sortField, setSortField] = useState('totalShortage');
+            const [sortDir, setSortDir] = useState('desc');
+            const [expandedSupplier, setExpandedSupplier] = useState(null);
+
+            // 선택된 제품들의 부족 자재를 협력사별로 재집계
+            const filteredSupplierShortage = useMemo(() => {
+                const result = {};
+                selectedParts.forEach(partNo => {
+                    const mrp = mrpResults[partNo];
+                    if (!mrp || !mrp.materials) return;
+                    mrp.materials.forEach(m => {
+                        if (m.shortage > 0) {
+                            const supplier = m.supplier || '(미지정)';
+                            if (!result[supplier]) result[supplier] = { itemCount: 0, totalShortage: 0, items: [] };
+                            // 중복 체크 (같은 자재가 여러 제품에서 부족할 수 있음)
+                            const existingItem = result[supplier].items.find(i => i.partNo === m.partNo);
+                            if (existingItem) {
+                                existingItem.shortage += m.shortage;
+                                result[supplier].totalShortage += m.shortage;
+                            } else {
+                                result[supplier].itemCount++;
+                                result[supplier].totalShortage += m.shortage;
+                                result[supplier].items.push({ partNo: m.partNo, partName: m.partName, shortage: m.shortage });
+                            }
+                        }
+                    });
+                });
+                return result;
+            }, [selectedParts, mrpResults]);
+
+            const suppliers = Object.entries(filteredSupplierShortage)
+                .map(([name, data]) => ({ name, ...data }))
+                .sort((a, b) => {
+                    let aVal = a[sortField], bVal = b[sortField];
+                    if (typeof aVal === 'string') { aVal = aVal?.toLowerCase(); bVal = bVal?.toLowerCase(); }
+                    if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+                    if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+                    return 0;
+                });
+
+            const filtered = suppliers.filter(s => s.name?.toLowerCase().includes(searchTerm.toLowerCase()));
+
+            const exportToExcel = () => {
+                const data = [];
+                filtered.forEach(s => {
+                    s.items.forEach(item => {
+                        data.push({ '협력사': s.name, '자재코드': item.partNo, '자재명': item.partName, '부족수량': item.shortage });
+                    });
+                });
+                const ws = XLSX.utils.json_to_sheet(data);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, '협력사별부족현황');
+                XLSX.writeFile(wb, '협력사별_부족현황.xlsx');
+            };
+
+            if (suppliers.length === 0) return null;
+
+            return (
+                <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+                    <div className="p-4 bg-gray-50 cursor-pointer flex justify-between items-center" onClick={() => setIsExpanded(!isExpanded)}>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xl">📊</span>
+                            <h2 className="text-lg font-bold text-gray-800">협력사별 부족수량 조회 ({suppliers.length}개사)</h2>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button onClick={(e) => { e.stopPropagation(); exportToExcel(); }} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
+                                <Icons.Download /> Excel
+                            </button>
+                            {isExpanded ? <Icons.ChevronUp /> : <Icons.ChevronDown />}
+                        </div>
+                    </div>
+
+                    {isExpanded && (
+                        <div className="p-6">
+                            <div className="mb-4 flex gap-2">
+                                <div className="relative flex-1 max-w-md">
+                                    <input type="text" placeholder="협력사명 검색..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                                        className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl" />
+                                    <div className="absolute left-3 top-2.5 text-gray-400"><Icons.Search /></div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {filtered.map((supplier, idx) => (
+                                    <div key={idx} className="border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow">
+                                        <div
+                                            className="p-4 cursor-pointer hover:bg-gray-50"
+                                            onClick={() => setExpandedSupplier(expandedSupplier === supplier.name ? null : supplier.name)}
+                                        >
+                                            <div className="flex items-center justify-between mb-2">
+                                                <h3 className="font-bold text-gray-800">{supplier.name}</h3>
+                                                <span className="text-gray-400">{expandedSupplier === supplier.name ? '▲' : '▼'}</span>
+                                            </div>
+                                            <div className="flex justify-between text-sm">
+                                                <span className="text-gray-500">부족 품목</span>
+                                                <span className="font-bold text-red-600">{supplier.itemCount}종</span>
+                                            </div>
+                                            <div className="flex justify-between text-sm mt-1">
+                                                <span className="text-gray-500">총 부족수량</span>
+                                                <span className="font-bold text-red-600">{supplier.totalShortage?.toLocaleString()}</span>
+                                            </div>
+                                        </div>
+                                        {expandedSupplier === supplier.name && supplier.items && (
+                                            <div className="border-t bg-gray-50 p-3 max-h-48 overflow-y-auto">
+                                                <table className="w-full text-xs">
+                                                    <thead>
+                                                        <tr className="text-gray-500">
+                                                            <th className="text-left py-1">자재코드</th>
+                                                            <th className="text-right py-1">부족수량</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {supplier.items.map((item, i) => (
+                                                            <tr key={i} className="border-t border-gray-200">
+                                                                <td className="py-1 font-mono">{item.partNo}</td>
+                                                                <td className="py-1 text-right text-red-600 font-medium">-{item.shortage?.toLocaleString()}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ========== 메인 App 컴포넌트 ==========
+        function App() {
+            const [loading, setLoading] = useState(true);
+            const [authChecked, setAuthChecked] = useState(false);
+            const [user, setUser] = useState(null);
+            const [rawData, setRawData] = useState({ bom: [], inventory: [], sales: [] });
+            const [selectedParts, setSelectedParts] = useState([]);
+            const [showAnalysis, setShowAnalysis] = useState(false);
+            const [loadError, setLoadError] = useState(null);
+
+            useEffect(() => {
+                const checkAuth = async () => {
+                    if (localStorage.getItem('mrp_demo_mode') === 'true') {
+                        setUser({ name: '데모 사용자', email: 'demo@example.com', isDemo: true });
+                        setAuthChecked(true);
+                        return;
+                    }
+                    let attempts = 0;
+                    while (!supabaseClient && attempts < 50) {
+                        if (initSupabase()) break;
+                        await new Promise(r => setTimeout(r, 100));
+                        attempts++;
+                    }
+                    if (!supabaseClient) {
+                        setLoadError('Supabase 연결 실패');
+                        setLoading(false);
+                        return;
+                    }
+                    try {
+                        const { data: { session } } = await supabaseClient.auth.getSession();
+                        if (session?.user) {
+                            setUser(session.user);
+                            setAuthChecked(true);
+                        } else {
+                            window.location.href = 'login.html';
+                        }
+                    } catch (e) {
+                        window.location.href = 'login.html';
+                    }
+                };
+                checkAuth();
+            }, []);
+
+            useEffect(() => {
+                if (!authChecked) return;
+                const loadData = async () => {
+                    try {
+                        const loaded = {};
+                        for (const type of ['bom', 'inventory', 'sales']) {
+                            const { data, error } = await supabaseClient
+                                .from('mrp_data').select('*').eq('data_type', type)
+                                .order('updated_at', { ascending: false }).limit(1);
+                            if (error) throw error;
+                            loaded[type] = data?.[0]?.data?.data || [];
+                        }
+                        setRawData(loaded);
+                        setLoading(false);
+                    } catch (e) {
+                        setLoadError(e.message);
+                        setLoading(false);
+                    }
+                };
+                loadData();
+            }, [authChecked]);
+
+            const { salesPlan, bomRelations, inventory, mrpResults, summary, supplierShortage } = useMemo(() => {
+                if (!rawData.bom.length) return { salesPlan: [], bomRelations: {}, inventory: {}, mrpResults: {}, summary: {}, supplierShortage: {} };
+
+                const salesPlan = rawData.sales.map(row => ({
+                    partNo: row['품번'] || row['모품번'] || row['customerPartNo'] || Object.values(row)[0],
+                    customerPN: row['고객사P/N'] || row['customerPN'] || '',
+                    productName: row['품명'] || row['제품명'] || row['productName'] || '',
+                    customerName: row['고객사'] || row['customerName'] || '',
+                    orderQty: parseFloat(row['매출수량'] || row['계획수량'] || row['orderQty'] || 0) || 0
+                }));
+
+                const bomRelations = {};
+                rawData.bom.forEach(row => {
+                    const parent = row['모품번'] || row['parentPartNo'] || Object.values(row)[0];
+                    const child = row['자품번'] || row['childPartNo'] || row['partNo'] || Object.values(row)[1];
+                    const level = parseInt(row['레벨'] || row['level'] || Object.values(row)[2]) || 1;
+                    const qty = parseFloat(row['소요량'] || row['usage'] || row['qty'] || Object.values(row)[3]) || 1;
+                    if (!bomRelations[parent]) bomRelations[parent] = [];
+                    bomRelations[parent].push({
+                        childPn: child,
+                        childName: row['자재명'] || row['partName'] || row['childName'] || child,
+                        level, qty,
+                        supplier: row['협력사'] || row['supplier'] || '(미지정)'
+                    });
+                });
+
+                const inventory = {};
+                rawData.inventory.forEach(row => {
+                    const pn = row['품번'] || row['partNo'] || Object.values(row)[0];
+                    inventory[pn] = parseFloat(row['재고수량'] || row['stockQty'] || row['qty'] || Object.values(row)[1]) || 0;
+                });
+
+                const mrpResults = {};
+                const supplierShortage = {};
+
+                salesPlan.forEach(sale => {
+                    const children = (bomRelations[sale.partNo] || []).filter(c => c.level === 1);
+                    const materials = [];
+                    let minCoverage = children.length > 0 ? Infinity : 100;
+
+                    children.forEach(child => {
+                        const requiredQty = sale.orderQty * child.qty;
+                        const stockQty = inventory[child.childPn] || 0;
+                        const coverage = requiredQty > 0 ? (stockQty / requiredQty) * 100 : 100;
+                        const shortage = Math.max(0, requiredQty - stockQty);
+
+                        materials.push({
+                            partNo: child.childPn, partName: child.childName, supplier: child.supplier,
+                            usage: child.qty, requiredQty, stockQty,
+                            coverage: Math.round(coverage * 10) / 10, shortage,
+                            status: shortage > 0 ? 'shortage' : 'ok'
+                        });
+
+                        minCoverage = Math.min(minCoverage, coverage);
+
+                        if (shortage > 0) {
+                            const supplier = child.supplier || '(미지정)';
+                            if (!supplierShortage[supplier]) supplierShortage[supplier] = { itemCount: 0, totalShortage: 0, items: [] };
+                            supplierShortage[supplier].itemCount++;
+                            supplierShortage[supplier].totalShortage += shortage;
+                            supplierShortage[supplier].items.push({ partNo: child.childPn, shortage });
+                        }
+                    });
+
+                    minCoverage = minCoverage === Infinity ? 100 : Math.round(minCoverage * 10) / 10;
+                    const possibleQty = Math.floor(sale.orderQty * minCoverage / 100);
+                    const shortageCount = materials.filter(m => m.status === 'shortage').length;
+                    const status = minCoverage >= 100 ? 'full' : minCoverage > 0 ? 'partial' : 'none';
+
+                    mrpResults[sale.partNo] = { ...sale, possibleQty, shortageQty: sale.orderQty - possibleQty, minCoverage, shortageCount, status, materials };
+                });
+
+                const summary = {
+                    total: salesPlan.length,
+                    full: Object.values(mrpResults).filter(r => r.status === 'full').length,
+                    partial: Object.values(mrpResults).filter(r => r.status === 'partial').length,
+                    none: Object.values(mrpResults).filter(r => r.status === 'none').length
+                };
+
+                return { salesPlan, bomRelations, inventory, mrpResults, summary, supplierShortage };
+            }, [rawData]);
+
+            if (loading) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center gradient-header">
+                        <div className="text-center">
+                            <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg mb-4"><span className="text-3xl">📦</span></div>
+                            <h1 className="text-2xl font-bold text-white mb-4">MRP 시스템</h1>
+                            <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                            <p className="text-white/80">{authChecked ? '데이터 로딩 중...' : '인증 확인 중...'}</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (loadError) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+                        <div className="text-center bg-white p-8 rounded-2xl shadow-lg max-w-md">
+                            <div className="text-5xl mb-4">⚠️</div>
+                            <h2 className="text-xl font-bold text-gray-800 mb-2">데이터 로드 실패</h2>
+                            <p className="text-gray-600 mb-4">{loadError}</p>
+                            <button onClick={() => window.location.reload()} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">다시 시도</button>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (!salesPlan.length) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+                        <div className="text-center bg-white p-8 rounded-2xl shadow-lg">
+                            <p className="text-gray-600 mb-4">데이터가 없습니다. 파일을 먼저 업로드하세요.</p>
+                            <a href="upload.html" className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700">파일 업로드하기 →</a>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-gray-100">
+                    <header className="gradient-header text-white p-6">
+                        <div className="max-w-7xl mx-auto">
+                            <div className="flex items-center justify-between mb-4">
+                                <div>
+                                    <h1 className="text-2xl font-bold">MRP 생산계획 분석 시스템 <span className="text-sm bg-white/20 px-2 py-1 rounded">v6</span></h1>
+                                    <p className="text-blue-200">현재고 기반 생산 가능 수량 분석 및 부족 자재 조회</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <a href="upload.html" className="px-4 py-2 bg-white/20 rounded-lg hover:bg-white/30">파일 업로드</a>
+                                    <button onClick={() => { localStorage.clear(); window.location.href = 'login.html'; }} className="px-4 py-2 bg-red-500/80 rounded-lg hover:bg-red-600">로그아웃</button>
+                                </div>
+                            </div>
+                            <div className="flex gap-3 flex-wrap">
+                                <span className="px-4 py-2 bg-blue-700 rounded-lg">영업계획 <strong>{summary.total}건</strong></span>
+                                <span className="px-4 py-2 bg-green-600 rounded-lg">생산가능 <strong>{summary.full}건</strong></span>
+                                <span className="px-4 py-2 bg-yellow-500 text-yellow-900 rounded-lg">일부가능 <strong>{summary.partial}건</strong></span>
+                                <span className="px-4 py-2 bg-red-600 rounded-lg">생산불가 <strong>{summary.none}건</strong></span>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-7xl mx-auto p-6">
+                        <UrgentOrderCheck salesPlan={salesPlan} bomRelations={bomRelations} inventory={inventory} />
+                        <SalesPlanSelection
+                            salesPlan={salesPlan}
+                            selectedParts={selectedParts}
+                            onSelectionChange={(parts) => { setSelectedParts(parts); setShowAnalysis(false); }}
+                            mrpResults={mrpResults}
+                            onAnalyze={() => setShowAnalysis(true)}
+                        />
+                        {showAnalysis && selectedParts.length > 0 && (
+                            <>
+                                <AnalysisResults selectedParts={selectedParts} mrpResults={mrpResults} salesPlan={salesPlan} />
+                                <SupplierShortageView supplierShortage={supplierShortage} selectedParts={selectedParts} mrpResults={mrpResults} />
+                            </>
+                        )}
+                    </main>
+
+                    <footer className="text-center py-4 text-gray-400 text-sm">MRP 생산계획 분석 시스템 v6 + Supabase</footer>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
