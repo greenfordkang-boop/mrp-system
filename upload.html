@@ -8,32 +8,59 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <style>
-        .gradient-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .apple-header { background: white; border-bottom: 1px solid #E8E8ED; }
         .upload-zone { border: 2px dashed #d1d5db; transition: all 0.2s; }
-        .upload-zone:hover { border-color: #6366f1; background-color: #eef2ff; }
-        .upload-zone.dragover { border-color: #6366f1; background-color: #eef2ff; }
+        .upload-zone:hover { border-color: #007AFF; background-color: #F5F5F7; }
+        .upload-zone.dragover { border-color: #007AFF; background-color: #F5F5F7; }
+        /* 창고 필터 스타일 */
+        .warehouse-filter { margin-top: 16px; }
+        .warehouse-dropdown { position: relative; }
+        .warehouse-btn { width: 100%; padding: 10px 12px; border: 2px solid #E5E7EB; border-radius: 8px; background: white; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s; }
+        .warehouse-btn:hover { border-color: #007AFF; }
+        .warehouse-btn.active { border-color: #007AFF; box-shadow: 0 0 0 3px rgba(0,122,255,0.1); }
+        .warehouse-menu { position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); max-height: 280px; overflow-y: auto; z-index: 50; display: none; }
+        .warehouse-menu.show { display: block; animation: slideDown 0.2s ease; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        .warehouse-item { display: flex; align-items: center; padding: 10px 12px; cursor: pointer; transition: background 0.15s; }
+        .warehouse-item:hover { background: #F3F4F6; }
+        .warehouse-item.selected { background: #EFF6FF; }
+        .warehouse-checkbox { width: 18px; height: 18px; border: 2px solid #D1D5DB; border-radius: 4px; margin-right: 10px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0; }
+        .warehouse-item.selected .warehouse-checkbox { background: #007AFF; border-color: #007AFF; }
+        .warehouse-checkbox svg { width: 12px; height: 12px; color: white; opacity: 0; }
+        .warehouse-item.selected .warehouse-checkbox svg { opacity: 1; }
+        .warehouse-count { margin-left: auto; font-size: 12px; color: #9CA3AF; background: #F3F4F6; padding: 2px 8px; border-radius: 10px; }
+        .warehouse-actions { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid #E5E7EB; background: #F9FAFB; }
+        .warehouse-actions button { flex: 1; padding: 6px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; transition: all 0.15s; }
+        .btn-select-all { background: #EFF6FF; color: #007AFF; border: 1px solid #BFDBFE; }
+        .btn-select-all:hover { background: #DBEAFE; }
+        .btn-clear { background: white; color: #6B7280; border: 1px solid #E5E7EB; }
+        .btn-clear:hover { background: #F3F4F6; }
+        .selected-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+        .selected-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: #EFF6FF; color: #007AFF; border-radius: 20px; font-size: 12px; }
+        .selected-tag button { background: none; border: none; color: #007AFF; cursor: pointer; font-size: 14px; line-height: 1; padding: 0; margin-left: 2px; }
+        .selected-tag button:hover { color: #0056CC; }
     </style>
 </head>
 <body class="min-h-screen bg-gray-50">
-    <header class="gradient-header text-white p-4 shadow-lg">
+    <header class="apple-header p-4">
         <div class="max-w-6xl mx-auto flex justify-between items-center">
             <div class="flex items-center gap-3">
                 <span class="text-2xl">📦</span>
                 <div>
-                    <h1 class="text-xl font-bold">MRP 시스템</h1>
-                    <p class="text-sm text-white/80">파일 업로드</p>
+                    <h1 class="text-xl font-bold text-gray-900">MRP 시스템</h1>
+                    <p class="text-sm text-gray-500">파일 업로드</p>
                 </div>
             </div>
             <div class="flex gap-2">
-                <a href="mrp.html" class="px-4 py-2 bg-white/20 rounded-lg hover:bg-white/30">MRP 분석</a>
-                <button onclick="handleLogout()" class="px-4 py-2 bg-red-500/80 rounded-lg hover:bg-red-600">로그아웃</button>
+                <a href="mrp.html" class="px-4 py-2 bg-[#007AFF] text-white rounded-lg hover:bg-[#0056CC]">MRP 분석</a>
+                <button onclick="handleLogout()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">로그아웃</button>
             </div>
         </div>
     </header>
 
     <main class="max-w-6xl mx-auto p-6">
         <div id="loading" class="hidden text-center py-4">
-            <div class="inline-flex items-center gap-2 text-indigo-600">
+            <div class="inline-flex items-center gap-2 text-[#007AFF]">
                 <svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -71,6 +98,32 @@
                 </div>
                 <input type="file" id="inv-input" class="hidden" accept=".xlsx,.xls,.csv" onchange="handleFileSelect(event,'inventory')">
                 <div id="inventory-info" class="mt-4 hidden"></div>
+
+                <!-- 창고 선택 필터 (재고 업로드 후 표시) -->
+                <div id="warehouse-filter" class="warehouse-filter hidden">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        🏭 창고 선택 <span class="text-xs text-gray-400">(복수 선택 가능)</span>
+                    </label>
+                    <div class="warehouse-dropdown">
+                        <button type="button" class="warehouse-btn" onclick="toggleWarehouseMenu(event)">
+                            <span id="warehouse-btn-text">창고를 선택하세요</span>
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <div id="warehouse-menu" class="warehouse-menu">
+                            <div id="warehouse-list"></div>
+                            <div class="warehouse-actions">
+                                <button type="button" class="btn-select-all" onclick="selectAllWarehouses()">전체 선택</button>
+                                <button type="button" class="btn-clear" onclick="clearWarehouseSelection()">선택 해제</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="selected-warehouses" class="selected-tags"></div>
+                    <div id="warehouse-summary" class="mt-3 p-3 bg-blue-50 rounded-lg hidden">
+                        <p class="text-blue-700 text-sm" id="warehouse-summary-text"></p>
+                    </div>
+                </div>
             </div>
 
             <div class="bg-white rounded-xl shadow p-6">
@@ -82,7 +135,7 @@
                      onclick="document.getElementById('sales-input').click()"
                      ondrop="handleDrop(event,'sales')" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
                     <p class="text-gray-500">클릭하거나 파일을 드래그하세요</p>
-                    <p class="text-xs text-gray-400 mt-2">필수: 품번, 계획수량</p>
+                    <p class="text-xs text-gray-400 mt-2">필수: 품번, 합계/매출수량/계획수량</p>
                 </div>
                 <input type="file" id="sales-input" class="hidden" accept=".xlsx,.xls,.csv" onchange="handleFileSelect(event,'sales')">
                 <div id="sales-info" class="mt-4 hidden"></div>
@@ -90,7 +143,7 @@
         </div>
 
         <div class="text-center">
-            <button onclick="goToMRP()" class="px-8 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 shadow-lg">
+            <button onclick="goToMRP()" class="px-8 py-3 bg-[#007AFF] text-white rounded-lg font-medium hover:bg-[#0056CC] shadow-sm">
                 MRP 분석 시작 →
             </button>
         </div>
@@ -104,6 +157,12 @@
         let supabaseClient = null;
         const uploadedData = { bom: null, inventory: null, sales: null };
 
+        // 창고 필터 관련 변수
+        let allWarehouses = [];           // 감지된 모든 창고 목록
+        let selectedWarehouses = [];      // 선택된 창고 목록
+        let warehouseCounts = {};         // 창고별 품목 수
+        let rawInventoryData = [];        // 원본 재고 데이터 (필터링 전)
+
         // Supabase 초기화
         function initSupabase() {
             if (window.supabase && typeof window.supabase.createClient === 'function') {
@@ -114,7 +173,7 @@
             return false;
         }
 
-        // 페이지 로드 시 Supabase 초기화 및 인증 체크
+        // 페이지 로드 시 Supabase 초기화 및 인증/권한 체크
         async function initAndCheckAuth() {
             // SDK 로딩 대기
             let attempts = 0;
@@ -123,9 +182,27 @@
                 attempts++;
             }
 
+            // 역할 체크 함수
+            function checkUploadPermission() {
+                const userRole = JSON.parse(localStorage.getItem('mrp_user_role') || '{}');
+                if (userRole.role === 'viewer') {
+                    alert('파일 업로드 권한이 없습니다. (뷰어는 조회만 가능)');
+                    window.location.href = 'mrp.html';
+                    return false;
+                }
+                return true;
+            }
+
             // 데모 모드 체크
             if (localStorage.getItem('mrp_demo_mode') === 'true') {
-                loadSavedData(); // 인증 후 데이터 로드
+                // 데모 모드는 viewer로 설정되어 있음
+                const userRole = JSON.parse(localStorage.getItem('mrp_user_role') || '{}');
+                if (userRole.role === 'viewer') {
+                    alert('데모 모드에서는 파일 업로드가 불가능합니다.');
+                    window.location.href = 'mrp.html';
+                    return;
+                }
+                loadSavedData();
                 return;
             }
 
@@ -134,7 +211,8 @@
                 try {
                     const { data: { session } } = await supabaseClient.auth.getSession();
                     if (session?.user) {
-                        loadSavedData(); // 인증 후 데이터 로드
+                        if (!checkUploadPermission()) return;
+                        loadSavedData(); // 권한 확인 후 데이터 로드
                         return;
                     }
                 } catch (e) {
@@ -165,6 +243,36 @@
                     if (!error && data && data.length > 0) {
                         uploadedData[type] = data[0].data;
                         showFileInfo(type, data[0].data.name || type, data[0].data.rows || data[0].data.data?.length || 0);
+
+                        // 재고 데이터에서 창고 정보 복원
+                        if (type === 'inventory' && data[0].data.allWarehouses) {
+                            rawInventoryData = data[0].data.data || [];
+                            allWarehouses = data[0].data.allWarehouses || [];
+                            selectedWarehouses = data[0].data.selectedWarehouses || [...allWarehouses];
+
+                            // 창고별 품목 수 계산
+                            warehouseCounts = {};
+                            rawInventoryData.forEach(row => {
+                                const wh = row['창고명'] || row['창고'] || row['warehouse'];
+                                if (wh && wh !== '합계') {
+                                    warehouseCounts[wh] = (warehouseCounts[wh] || 0) + 1;
+                                }
+                            });
+
+                            if (allWarehouses.length > 0) {
+                                document.getElementById('warehouse-filter').classList.remove('hidden');
+                                updateWarehouseUI();
+                                // 요약 표시
+                                const filteredCount = rawInventoryData.filter(row => {
+                                    const wh = row['창고명'] || row['창고'] || row['warehouse'] || '';
+                                    return selectedWarehouses.includes(wh);
+                                }).length;
+                                const summaryEl = document.getElementById('warehouse-summary');
+                                const summaryText = document.getElementById('warehouse-summary-text');
+                                summaryText.innerHTML = `✓ <strong>${selectedWarehouses.length}개 창고</strong> 선택 · ${filteredCount.toLocaleString()}개 품목`;
+                                summaryEl.classList.remove('hidden');
+                            }
+                        }
                     }
                 }
             } catch (e) {
@@ -216,6 +324,47 @@
                 try {
                     const wb = XLSX.read(ev.target.result, { type: 'array' });
                     const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+
+                    // 재고 파일인 경우 창고 감지
+                    if (type === 'inventory') {
+                        rawInventoryData = data; // 원본 데이터 저장
+                        detectWarehouses(data);  // 창고 감지
+
+                        // 창고가 감지되면 전체 선택 상태로 저장
+                        if (allWarehouses.length > 0) {
+                            const saveData = {
+                                name: file.name,
+                                rows: data.length,
+                                data: data,
+                                selectedWarehouses: allWarehouses,
+                                allWarehouses: allWarehouses
+                            };
+
+                            if (supabaseClient) {
+                                await supabaseClient
+                                    .from('mrp_data')
+                                    .delete()
+                                    .eq('data_type', type);
+
+                                const { error } = await supabaseClient
+                                    .from('mrp_data')
+                                    .insert({
+                                        data_type: type,
+                                        data: saveData
+                                    });
+
+                                if (error) {
+                                    console.error('Supabase 저장 오류:', error);
+                                    alert('데이터 저장 중 오류가 발생했습니다: ' + error.message);
+                                } else {
+                                    uploadedData[type] = saveData;
+                                    showFileInfo(type, file.name, data.length);
+                                }
+                            }
+                            showLoading(false);
+                            return;
+                        }
+                    }
 
                     const saveData = {
                         name: file.name,
@@ -279,12 +428,230 @@
             uploadedData[type] = null;
             document.getElementById(type + '-info').innerHTML = '';
             document.getElementById(type + '-info').classList.add('hidden');
+
+            // 재고 삭제 시 창고 필터 리셋
+            if (type === 'inventory') {
+                allWarehouses = [];
+                selectedWarehouses = [];
+                warehouseCounts = {};
+                rawInventoryData = [];
+                document.getElementById('warehouse-filter').classList.add('hidden');
+                document.getElementById('warehouse-summary').classList.add('hidden');
+                document.getElementById('selected-warehouses').innerHTML = '';
+            }
+
             showLoading(false);
+        }
+
+        // ===== 창고 필터 함수들 =====
+
+        // 창고 메뉴 토글
+        function toggleWarehouseMenu(e) {
+            e.stopPropagation();
+            const menu = document.getElementById('warehouse-menu');
+            const btn = e.currentTarget;
+            menu.classList.toggle('show');
+            btn.classList.toggle('active');
+        }
+
+        // 외부 클릭 시 메뉴 닫기
+        document.addEventListener('click', function(e) {
+            const dropdown = document.querySelector('.warehouse-dropdown');
+            const menu = document.getElementById('warehouse-menu');
+            const btn = document.querySelector('.warehouse-btn');
+            if (dropdown && !dropdown.contains(e.target)) {
+                menu?.classList.remove('show');
+                btn?.classList.remove('active');
+            }
+        });
+
+        // 창고 목록 렌더링
+        function renderWarehouseList() {
+            const listEl = document.getElementById('warehouse-list');
+            if (!listEl) return;
+
+            listEl.innerHTML = allWarehouses.map(wh => {
+                const isSelected = selectedWarehouses.includes(wh);
+                const count = warehouseCounts[wh] || 0;
+                return `
+                    <div class="warehouse-item ${isSelected ? 'selected' : ''}" onclick="toggleWarehouse('${wh}')">
+                        <div class="warehouse-checkbox">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                        <span>${wh}</span>
+                        <span class="warehouse-count">${count.toLocaleString()}개</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // 창고 선택/해제
+        function toggleWarehouse(wh) {
+            const idx = selectedWarehouses.indexOf(wh);
+            if (idx > -1) {
+                selectedWarehouses.splice(idx, 1);
+            } else {
+                selectedWarehouses.push(wh);
+            }
+            updateWarehouseUI();
+            applyWarehouseFilter();
+        }
+
+        // 전체 선택
+        function selectAllWarehouses() {
+            selectedWarehouses = [...allWarehouses];
+            updateWarehouseUI();
+            applyWarehouseFilter();
+        }
+
+        // 선택 해제
+        function clearWarehouseSelection() {
+            selectedWarehouses = [];
+            updateWarehouseUI();
+            applyWarehouseFilter();
+        }
+
+        // 특정 창고 제거 (태그 X 버튼)
+        function removeWarehouse(wh) {
+            const idx = selectedWarehouses.indexOf(wh);
+            if (idx > -1) {
+                selectedWarehouses.splice(idx, 1);
+                updateWarehouseUI();
+                applyWarehouseFilter();
+            }
+        }
+
+        // UI 업데이트
+        function updateWarehouseUI() {
+            renderWarehouseList();
+
+            // 버튼 텍스트 업데이트
+            const btnText = document.getElementById('warehouse-btn-text');
+            if (selectedWarehouses.length === 0) {
+                btnText.textContent = '창고를 선택하세요';
+            } else if (selectedWarehouses.length === allWarehouses.length) {
+                btnText.textContent = `전체 창고 (${allWarehouses.length}개)`;
+            } else {
+                btnText.textContent = `${selectedWarehouses.length}개 창고 선택됨`;
+            }
+
+            // 선택된 창고 태그 표시
+            const tagsEl = document.getElementById('selected-warehouses');
+            if (selectedWarehouses.length > 0 && selectedWarehouses.length <= 5) {
+                tagsEl.innerHTML = selectedWarehouses.map(wh => `
+                    <span class="selected-tag">
+                        ${wh}
+                        <button onclick="removeWarehouse('${wh}')">&times;</button>
+                    </span>
+                `).join('');
+            } else if (selectedWarehouses.length > 5) {
+                tagsEl.innerHTML = `
+                    <span class="selected-tag">${selectedWarehouses.length}개 창고 선택됨</span>
+                `;
+            } else {
+                tagsEl.innerHTML = '';
+            }
+        }
+
+        // 창고 필터 적용 및 데이터 저장
+        async function applyWarehouseFilter() {
+            if (selectedWarehouses.length === 0) {
+                document.getElementById('warehouse-summary').classList.add('hidden');
+                return;
+            }
+
+            showLoading(true);
+
+            // 선택된 창고의 재고만 필터링
+            const filteredData = rawInventoryData.filter(row => {
+                const wh = row['창고명'] || row['창고'] || row['warehouse'] || '';
+                return selectedWarehouses.includes(wh);
+            });
+
+            const totalCount = filteredData.length;
+            const totalStock = filteredData.reduce((sum, row) => {
+                let qty = row['재고'] || row['재고수량'] || row['stockQty'] || 0;
+                if (typeof qty === 'string') qty = parseFloat(qty.replace(/,/g, '')) || 0;
+                return sum + qty;
+            }, 0);
+
+            // 요약 표시
+            const summaryEl = document.getElementById('warehouse-summary');
+            const summaryText = document.getElementById('warehouse-summary-text');
+            summaryText.innerHTML = `✓ <strong>${selectedWarehouses.length}개 창고</strong> 선택 · ${totalCount.toLocaleString()}개 품목 · 총 재고 ${totalStock.toLocaleString()}개`;
+            summaryEl.classList.remove('hidden');
+
+            // 필터링된 데이터를 Supabase에 저장
+            const saveData = {
+                name: uploadedData.inventory?.name || '재고현황',
+                rows: filteredData.length,
+                data: filteredData,
+                selectedWarehouses: selectedWarehouses,
+                allWarehouses: allWarehouses
+            };
+
+            if (supabaseClient) {
+                await supabaseClient
+                    .from('mrp_data')
+                    .delete()
+                    .eq('data_type', 'inventory');
+
+                const { error } = await supabaseClient
+                    .from('mrp_data')
+                    .insert({
+                        data_type: 'inventory',
+                        data: saveData
+                    });
+
+                if (error) {
+                    console.error('필터링 데이터 저장 오류:', error);
+                } else {
+                    uploadedData.inventory = saveData;
+                    // 파일 정보 업데이트
+                    showFileInfo('inventory', saveData.name, filteredData.length);
+                }
+            }
+
+            showLoading(false);
+        }
+
+        // 재고 파일에서 창고 감지
+        function detectWarehouses(data) {
+            const warehouses = new Set();
+            const counts = {};
+
+            data.forEach(row => {
+                const wh = row['창고명'] || row['창고'] || row['warehouse'];
+                if (wh && wh !== '합계' && wh.trim() !== '') {
+                    warehouses.add(wh);
+                    counts[wh] = (counts[wh] || 0) + 1;
+                }
+            });
+
+            allWarehouses = Array.from(warehouses).sort();
+            warehouseCounts = counts;
+
+            // 창고가 감지되면 필터 UI 표시
+            if (allWarehouses.length > 0) {
+                document.getElementById('warehouse-filter').classList.remove('hidden');
+                // 기본값: 전체 선택
+                selectedWarehouses = [...allWarehouses];
+                updateWarehouseUI();
+            } else {
+                document.getElementById('warehouse-filter').classList.add('hidden');
+            }
         }
 
         function goToMRP() {
             if (!uploadedData.bom || !uploadedData.inventory || !uploadedData.sales) {
                 alert('모든 파일(BOM, 재고, 영업계획)을 업로드해주세요.');
+                return;
+            }
+            // 창고가 감지되었는데 선택 안 된 경우 경고
+            if (allWarehouses.length > 0 && selectedWarehouses.length === 0) {
+                alert('최소 1개 이상의 창고를 선택해주세요.');
                 return;
             }
             window.location.href = 'mrp.html';
