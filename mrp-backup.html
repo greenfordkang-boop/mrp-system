@@ -498,13 +498,11 @@
                                             <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">고객사</th>
                                             <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">계획수량</th>
                                             <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">상태</th>
-                                            <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">월별현황</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y">
                                         {filteredSales.map((item, idx) => {
                                             const result = mrpResults[item.partNo];
-                                            const monthlyInfo = result?.monthlyAnalysis;
                                             return (
                                                 <tr key={idx} className={`hover:bg-gray-50 cursor-pointer ${selectedParts.includes(item.partNo) ? 'bg-[#F5F5F7]' : ''}`} onClick={() => toggleSelection(item.partNo)}>
                                                     <td className="px-4 py-3">
@@ -519,15 +517,6 @@
                                                     <td className="px-4 py-3 text-gray-600">{item.customerName}</td>
                                                     <td className="px-4 py-3 text-right font-medium">{item.orderQty?.toLocaleString()}</td>
                                                     <td className="px-4 py-3 text-center">{result && <StatusBadge status={result.status} />}</td>
-                                                    <td className="px-4 py-3 text-center text-xs">
-                                                        {monthlyInfo?.hasData ? (
-                                                            <span className={monthlyInfo.firstShortageMonth ? 'text-[#FF3B30] font-medium' : 'text-green-600'}>
-                                                                {monthlyInfo.summary}
-                                                            </span>
-                                                        ) : (
-                                                            <span className="text-gray-400">-</span>
-                                                        )}
-                                                    </td>
                                                 </tr>
                                             );
                                         })}
@@ -698,7 +687,6 @@
                                             <th className="px-3 py-3 text-center cursor-pointer hover:bg-gray-200 select-none" onClick={() => handleSort('minCoverage')}>커버율 <SortIcon field="minCoverage" currentField={sortField} direction={sortDir} /></th>
                                             <th className="px-3 py-3 text-right cursor-pointer hover:bg-gray-200 select-none" onClick={() => handleSort('shortageQty')}>부족수량 <SortIcon field="shortageQty" currentField={sortField} direction={sortDir} /></th>
                                             <th className="px-3 py-3 text-center cursor-pointer hover:bg-gray-200 select-none" onClick={() => handleSort('status')}>상태 <SortIcon field="status" currentField={sortField} direction={sortDir} /></th>
-                                            <th className="px-3 py-3 text-center">월별현황</th>
                                             <th className="px-3 py-3 text-left">부족자재</th>
                                         </tr>
                                     </thead>
@@ -724,13 +712,6 @@
                                                     </td>
                                                     <td className="px-3 py-3 text-right font-medium text-red-600">{r.shortageQty > 0 ? r.shortageQty?.toLocaleString() : '-'}</td>
                                                     <td className="px-3 py-3 text-center"><StatusBadge status={r.status} /></td>
-                                                    <td className="px-3 py-3 text-center text-xs">
-                                                        {r.monthlyAnalysis?.hasData ? (
-                                                            <span className={r.monthlyAnalysis.firstShortageMonth ? 'text-[#FF3B30] font-medium' : 'text-green-600'}>
-                                                                {r.monthlyAnalysis.summary}
-                                                            </span>
-                                                        ) : '-'}
-                                                    </td>
                                                     <td className="px-3 py-3 text-sm">
                                                         {r.shortageCount > 0 ? (
                                                             <div className="flex flex-wrap gap-1">
@@ -745,7 +726,7 @@
                                                 {/* 방안 A: 확장형 행 - 부족자재 상세 */}
                                                 {expandedRow === r.partNo && r.materials && (
                                                     <tr>
-                                                        <td colSpan="10" className="bg-gray-50 px-4 py-3">
+                                                        <td colSpan="9" className="bg-gray-50 px-4 py-3">
                                                             <div className="bg-white rounded-lg border shadow-sm p-4">
                                                                 <div className="flex items-center gap-2 mb-3">
                                                                     <span className="text-lg">📦</span>
@@ -788,56 +769,6 @@
                                                                     </div>
                                                                 ) : (
                                                                     <p className="text-gray-500 text-center py-4">✅ 부족 자재가 없습니다</p>
-                                                                )}
-
-                                                                {/* 월별 현황 타임라인 */}
-                                                                {r.monthlyAnalysis?.hasData && (
-                                                                    <div className="mt-4 pt-4 border-t">
-                                                                        <div className="flex items-center gap-2 mb-3">
-                                                                            <span className="text-lg">📅</span>
-                                                                            <h4 className="font-bold text-gray-700">월별 생산 가능 현황</h4>
-                                                                            <span className={`text-sm ${r.monthlyAnalysis.firstShortageMonth ? 'text-[#FF3B30]' : 'text-green-600'}`}>
-                                                                                ({r.monthlyAnalysis.summary})
-                                                                            </span>
-                                                                        </div>
-                                                                        <div className="grid grid-cols-12 gap-1">
-                                                                            {[1,2,3,4,5,6,7,8,9,10,11,12].map(month => {
-                                                                                const mData = r.monthlyAnalysis.months[month];
-                                                                                const bgColor = !mData || mData.planQty === 0 ? 'bg-gray-100' :
-                                                                                    mData.status === 'full' ? 'bg-green-100 border-green-300' :
-                                                                                    mData.status === 'partial' ? 'bg-yellow-100 border-yellow-300' : 'bg-red-100 border-red-300';
-                                                                                const textColor = !mData || mData.planQty === 0 ? 'text-gray-400' :
-                                                                                    mData.status === 'full' ? 'text-green-700' :
-                                                                                    mData.status === 'partial' ? 'text-yellow-700' : 'text-red-600';
-                                                                                return (
-                                                                                    <div key={month} className={`rounded-lg border p-2 text-center ${bgColor}`} title={mData ? `${month}월: 계획 ${mData.planQty?.toLocaleString()}, 가능 ${mData.possibleQty?.toLocaleString()}, 커버율 ${mData.coverage?.toFixed(1)}%` : '계획 없음'}>
-                                                                                        <div className="text-xs font-medium text-gray-600">{month}월</div>
-                                                                                        <div className={`text-xs font-bold ${textColor}`}>
-                                                                                            {!mData || mData.planQty === 0 ? '-' :
-                                                                                             mData.status === 'full' ? '✓' :
-                                                                                             mData.status === 'partial' ? `${mData.coverage?.toFixed(0)}%` : '✗'}
-                                                                                        </div>
-                                                                                        {mData && mData.planQty > 0 && (
-                                                                                            <div className="text-[10px] text-gray-500">{mData.planQty?.toLocaleString()}</div>
-                                                                                        )}
-                                                                                    </div>
-                                                                                );
-                                                                            })}
-                                                                        </div>
-                                                                        {/* 부족 월 상세 정보 */}
-                                                                        {r.monthlyAnalysis.firstShortageMonth && (
-                                                                            <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-200">
-                                                                                <p className="text-sm text-red-700 font-medium">
-                                                                                    ⚠️ {r.monthlyAnalysis.firstShortageMonth}월부터 자재 부족 발생
-                                                                                </p>
-                                                                                {r.monthlyAnalysis.months[r.monthlyAnalysis.firstShortageMonth]?.shortageItems?.slice(0, 3).map((item, i) => (
-                                                                                    <p key={i} className="text-xs text-red-600 mt-1">
-                                                                                        • {item.partNo}: 필요 {item.required?.toLocaleString()} / 가용 {item.available?.toLocaleString()} → 부족 {item.shortage?.toLocaleString()}
-                                                                                    </p>
-                                                                                ))}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
                                                                 )}
                                                             </div>
                                                         </td>
@@ -1042,7 +973,7 @@
                                                     {/* 확장: 관련 제품 상세 */}
                                                     {expandedMaterial === m.partNo && (
                                                         <tr>
-                                                            <td colSpan="10" className="bg-[#FFF5F5] px-4 py-3">
+                                                            <td colSpan="9" className="bg-[#FFF5F5] px-4 py-3">
                                                                 <div className="bg-white rounded-lg border shadow-sm p-4">
                                                                     <div className="flex items-center gap-2 mb-3">
                                                                         <span className="text-lg">📋</span>
@@ -1378,20 +1309,10 @@
                     // BOM에 존재하는 품번 우선 사용
                     let partNo = candidates.find(c => bomParentSet.has(c)) || candidates[0] || '';
 
-                    // 월별 계획수량 파싱 (1월~12월)
-                    const monthlyPlan = {};
-                    const months = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
-                    let hasMonthlyData = false;
-
-                    months.forEach((month, idx) => {
-                        const qty = parseFloat(row[month]) || 0;
-                        monthlyPlan[idx + 1] = qty;
-                        if (qty > 0) hasMonthlyData = true;
-                    });
-
-                    // 계획수량: 합계(연간계획), 매출수량(실적), 계획수량 순으로 시도
+                    // 계획수량: 합계(연간계획), 1월(월간계획), 매출수량(실적), 계획수량 순으로 시도
                     const orderQty = parseFloat(
                         row['합계'] ||           // 판매계획대비실적: 연간 계획수량
+                        row['1월'] ||            // 판매계획대비실적: 1월 계획수량
                         row['매출수량'] ||       // 품목별매출: 실제 매출수량
                         row['계획수량'] ||       // 기존 형식
                         row['orderQty'] ||
@@ -1400,13 +1321,11 @@
 
                     return {
                         partNo,
-                        customerPN: row['고객사 P/N'] || row['고객사P/N'] || row['customerPN'] || '',
+                        customerPN: row['고객사 P/N'] || row['고객사P/N'] || row['customerPN'] || '',  // 공백 포함 버전 추가
                         productName: row['품명'] || row['제품명'] || row['productName'] || '',
                         customerName: row['고객사'] || row['customerName'] || '',
-                        model: row['Model(품종)'] || '',
-                        orderQty,
-                        monthlyPlan,           // 월별 계획수량 { 1: qty, 2: qty, ... 12: qty }
-                        hasMonthlyData         // 월별 데이터 유무
+                        model: row['Model(품종)'] || '',  // 모델/품종 추가
+                        orderQty
                     };
                 });
 
@@ -1493,78 +1412,7 @@
                     // BOM이 없으면 'nobom', 있으면 커버리지에 따라 상태 결정
                     const status = !hasBom ? 'nobom' : (minCoverage >= 100 ? 'full' : minCoverage > 0 ? 'partial' : 'none');
 
-                    // ===== 월별 누적 재고 기반 MRP 계산 =====
-                    const monthlyAnalysis = { hasData: sale.hasMonthlyData, months: {} };
-
-                    if (sale.hasMonthlyData && hasBom) {
-                        // 각 자재별 잔여 재고 추적 (월별 누적 소진)
-                        const remainingStock = {};
-                        children.forEach(child => {
-                            remainingStock[child.childPn] = inventory[child.childPn] || 0;
-                        });
-
-                        let firstShortageMonth = null;  // 최초 부족 발생 월
-
-                        for (let month = 1; month <= 12; month++) {
-                            const monthlyQty = sale.monthlyPlan[month] || 0;
-                            if (monthlyQty === 0) {
-                                monthlyAnalysis.months[month] = { planQty: 0, status: 'none', possibleQty: 0, shortageItems: [] };
-                                continue;
-                            }
-
-                            let monthMinCoverage = Infinity;
-                            const shortageItems = [];
-
-                            children.forEach(child => {
-                                const requiredQty = monthlyQty * child.qty;
-                                const availableStock = remainingStock[child.childPn] || 0;
-                                const coverage = requiredQty > 0 ? (availableStock / requiredQty) * 100 : 100;
-
-                                monthMinCoverage = Math.min(monthMinCoverage, coverage);
-
-                                // 재고 차감 (소진)
-                                const usedQty = Math.min(availableStock, requiredQty);
-                                remainingStock[child.childPn] = availableStock - usedQty;
-
-                                // 부족 발생시 기록
-                                if (coverage < 100) {
-                                    shortageItems.push({
-                                        partNo: child.childPn,
-                                        partName: child.childName,
-                                        required: requiredQty,
-                                        available: availableStock,
-                                        shortage: Math.max(0, requiredQty - availableStock)
-                                    });
-                                }
-                            });
-
-                            monthMinCoverage = monthMinCoverage === Infinity ? 100 : Math.round(monthMinCoverage * 10) / 10;
-                            const monthPossibleQty = Math.floor(monthlyQty * monthMinCoverage / 100);
-                            const monthStatus = monthMinCoverage >= 100 ? 'full' : monthMinCoverage > 0 ? 'partial' : 'none';
-
-                            if (monthStatus !== 'full' && !firstShortageMonth) {
-                                firstShortageMonth = month;
-                            }
-
-                            monthlyAnalysis.months[month] = {
-                                planQty: monthlyQty,
-                                possibleQty: monthPossibleQty,
-                                coverage: monthMinCoverage,
-                                status: monthStatus,
-                                shortageItems
-                            };
-                        }
-
-                        monthlyAnalysis.firstShortageMonth = firstShortageMonth;
-                        // 요약 메시지 생성
-                        if (!firstShortageMonth) {
-                            monthlyAnalysis.summary = '연간 생산 가능';
-                        } else {
-                            monthlyAnalysis.summary = `${firstShortageMonth}월부터 부족`;
-                        }
-                    }
-
-                    mrpResults[sale.partNo] = { ...sale, possibleQty, shortageQty: sale.orderQty - possibleQty, minCoverage, shortageCount, status, materials, hasBom, monthlyAnalysis };
+                    mrpResults[sale.partNo] = { ...sale, possibleQty, shortageQty: sale.orderQty - possibleQty, minCoverage, shortageCount, status, materials, hasBom };
                 });
 
                 // 디버깅: BOM 매칭 결과

@@ -7,14 +7,20 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script id="supabase-sdk" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <style>
-        .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-        .card-shadow { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
-        .input-focus:focus { box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3); }
+        :root {
+            --apple-gray: #F5F5F7;
+            --apple-blue: #007AFF;
+            --apple-text: #1D1D1F;
+            --apple-text-secondary: #86868B;
+        }
+        .apple-bg { background: var(--apple-gray); }
+        .card-shadow { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); }
+        .input-focus:focus { box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.3); border-color: var(--apple-blue); }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         .fade-in { animation: fadeIn 0.3s ease-out; }
     </style>
 </head>
-<body class="min-h-screen gradient-bg flex items-center justify-center p-4">
+<body class="min-h-screen apple-bg flex items-center justify-center p-4">
     <div id="root"></div>
 
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -24,11 +30,13 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // ===== Supabase 설정 (여기에 본인의 URL과 KEY 입력) =====
+        // ===== Supabase 설정 =====
         const SUPABASE_URL = 'https://vnhjfbcufmbbhwevzunc.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZuaGpmYmN1Zm1iYmh3ZXZ6dW5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5MzE2NDEsImV4cCI6MjA4NTUwNzY0MX0.ZZFMYH172ByFDOpBNH_4ehsDNoKMqmLIvdhiCv_27Zo';
 
-        // Supabase 클라이언트 초기화 - SDK 로딩 대기 포함
+        // 관리자 이메일 목록
+        const ADMIN_EMAILS = ['greenfordkang@gmail.com'];
+
         let supabaseClient = null;
         let supabaseReady = false;
 
@@ -48,7 +56,6 @@
             return false;
         };
 
-        // 첫 시도
         initSupabase();
 
         // 아이콘 컴포넌트
@@ -59,8 +66,59 @@
             Building: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>,
             Check: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>,
             Alert: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>,
+            Clock: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
             Spinner: () => <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
         };
+
+        // 사용자 역할 확인/생성 함수
+        async function ensureUserRole(userId, email) {
+            try {
+                // 먼저 기존 역할 조회
+                const { data: existingRole, error: fetchError } = await supabaseClient
+                    .from('user_roles')
+                    .select('*')
+                    .eq('user_id', userId)
+                    .single();
+
+                if (existingRole) {
+                    return existingRole;
+                }
+
+                // 역할이 없으면 새로 생성
+                const isAdmin = ADMIN_EMAILS.includes(email.toLowerCase());
+                const newRole = {
+                    user_id: userId,
+                    email: email,
+                    role: isAdmin ? 'admin' : 'viewer', // 기본 역할은 viewer
+                    status: isAdmin ? 'approved' : 'pending', // 관리자는 자동 승인
+                    created_at: new Date().toISOString()
+                };
+
+                const { data: createdRole, error: createError } = await supabaseClient
+                    .from('user_roles')
+                    .insert(newRole)
+                    .select()
+                    .single();
+
+                if (createError) {
+                    console.error('역할 생성 오류:', createError);
+                    // 테이블이 없으면 기본 역할 반환
+                    return { ...newRole, id: 'temp' };
+                }
+
+                return createdRole;
+            } catch (e) {
+                console.error('역할 확인 오류:', e);
+                // 오류 시 기본 역할 반환
+                const isAdmin = ADMIN_EMAILS.includes(email.toLowerCase());
+                return {
+                    user_id: userId,
+                    email: email,
+                    role: isAdmin ? 'admin' : 'viewer',
+                    status: isAdmin ? 'approved' : 'pending'
+                };
+            }
+        }
 
         function App() {
             const [mode, setMode] = useState('login');
@@ -70,22 +128,20 @@
                 email: '', password: '', confirmPassword: '', name: '', company: ''
             });
             const [isSupabaseReady, setIsSupabaseReady] = useState(supabaseReady);
-            const [initialLoading, setInitialLoading] = useState(true); // 초기 로딩 상태 추가
+            const [initialLoading, setInitialLoading] = useState(true);
+            const [pendingApproval, setPendingApproval] = useState(false);
 
             useEffect(() => {
-                // Supabase SDK 로딩 대기 및 재시도
                 if (!supabaseReady) {
                     const checkInterval = setInterval(() => {
                         if (initSupabase()) {
                             clearInterval(checkInterval);
                             setIsSupabaseReady(true);
                         }
-                    }, 200); // 100ms → 200ms로 변경 (깜빡임 감소)
-                    // 5초 후 타임아웃
+                    }, 200);
                     const timeout = setTimeout(() => {
                         clearInterval(checkInterval);
-                        setInitialLoading(false); // 타임아웃 시 로딩 해제
-                        console.log('Supabase SDK 로딩 타임아웃');
+                        setInitialLoading(false);
                     }, 5000);
                     return () => {
                         clearInterval(checkInterval);
@@ -103,13 +159,31 @@
                     try {
                         const { data: { session } } = await supabaseClient.auth.getSession();
                         if (session) {
+                            // 역할 및 승인 상태 확인
+                            const userRole = await ensureUserRole(session.user.id, session.user.email);
+
+                            if (userRole.status === 'pending') {
+                                setPendingApproval(true);
+                                setInitialLoading(false);
+                                return;
+                            }
+
+                            if (userRole.status === 'rejected') {
+                                setMessage({ type: 'error', text: '계정이 거부되었습니다. 관리자에게 문의하세요.' });
+                                await supabaseClient.auth.signOut();
+                                setInitialLoading(false);
+                                return;
+                            }
+
+                            // 승인된 사용자 - 역할 정보 저장 후 이동
+                            localStorage.setItem('mrp_user_role', JSON.stringify(userRole));
                             window.location.href = 'mrp.html';
-                            return; // 리다이렉트 중이면 로딩 상태 유지
+                            return;
                         }
                     } catch (e) {
                         console.error('세션 체크 오류:', e);
                     }
-                    setInitialLoading(false); // 세션 체크 완료 후 로딩 해제
+                    setInitialLoading(false);
                 };
                 if (isSupabaseReady) {
                     checkSession();
@@ -129,11 +203,30 @@
                 }
                 setLoading(true);
                 try {
-                    const { error } = await supabaseClient.auth.signInWithPassword({
+                    const { data, error } = await supabaseClient.auth.signInWithPassword({
                         email: formData.email,
                         password: formData.password
                     });
                     if (error) throw error;
+
+                    // 역할 및 승인 상태 확인
+                    const userRole = await ensureUserRole(data.user.id, data.user.email);
+
+                    if (userRole.status === 'pending') {
+                        setPendingApproval(true);
+                        setLoading(false);
+                        return;
+                    }
+
+                    if (userRole.status === 'rejected') {
+                        setMessage({ type: 'error', text: '계정이 거부되었습니다. 관리자에게 문의하세요.' });
+                        await supabaseClient.auth.signOut();
+                        setLoading(false);
+                        return;
+                    }
+
+                    // 승인된 사용자
+                    localStorage.setItem('mrp_user_role', JSON.stringify(userRole));
                     setMessage({ type: 'success', text: '로그인 성공!' });
                     setTimeout(() => { window.location.href = 'mrp.html'; }, 1000);
                 } catch (error) {
@@ -159,7 +252,7 @@
                 }
                 setLoading(true);
                 try {
-                    const { error } = await supabaseClient.auth.signUp({
+                    const { data, error } = await supabaseClient.auth.signUp({
                         email: formData.email,
                         password: formData.password,
                         options: {
@@ -167,7 +260,15 @@
                         }
                     });
                     if (error) throw error;
-                    setMessage({ type: 'success', text: '회원가입 완료! 이메일을 확인해주세요.' });
+
+                    // 관리자 이메일인지 확인
+                    const isAdmin = ADMIN_EMAILS.includes(formData.email.toLowerCase());
+
+                    if (isAdmin) {
+                        setMessage({ type: 'success', text: '관리자 계정으로 등록되었습니다! 이메일을 확인해주세요.' });
+                    } else {
+                        setMessage({ type: 'success', text: '회원가입 완료! 관리자 승인 후 사용 가능합니다. 이메일을 확인해주세요.' });
+                    }
                     setMode('login');
                 } catch (error) {
                     setMessage({ type: 'error', text: error.message });
@@ -176,13 +277,23 @@
                 }
             };
 
+            const handleLogout = async () => {
+                if (supabaseClient) {
+                    await supabaseClient.auth.signOut();
+                }
+                localStorage.removeItem('mrp_user_role');
+                setPendingApproval(false);
+                setMessage({ type: '', text: '' });
+            };
+
             const handleDemoMode = () => {
                 localStorage.setItem('mrp_demo_mode', 'true');
                 localStorage.setItem('mrp_user', JSON.stringify({ name: '데모 사용자', email: 'demo@example.com' }));
+                localStorage.setItem('mrp_user_role', JSON.stringify({ role: 'viewer', status: 'approved' }));
                 window.location.href = 'mrp.html';
             };
 
-            // 초기 로딩 중일 때 로딩 화면 표시 (깜빡임 방지)
+            // 초기 로딩 화면
             if (initialLoading) {
                 return (
                     <div className="w-full max-w-md text-center">
@@ -193,6 +304,44 @@
                         <div className="flex items-center justify-center gap-2 text-white/80">
                             <Icons.Spinner />
                             <span>로딩 중...</span>
+                        </div>
+                    </div>
+                );
+            }
+
+            // 승인 대기 화면
+            if (pendingApproval) {
+                return (
+                    <div className="w-full max-w-md fade-in">
+                        <div className="text-center mb-8">
+                            <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg mb-4">
+                                <span className="text-3xl">⏳</span>
+                            </div>
+                            <h1 className="text-3xl font-bold text-white mb-2">승인 대기 중</h1>
+                            <p className="text-white/80">관리자 승인이 필요합니다</p>
+                        </div>
+                        <div className="bg-white rounded-2xl card-shadow p-8">
+                            <div className="text-center">
+                                <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <Icons.Clock />
+                                </div>
+                                <h2 className="text-xl font-bold text-gray-800 mb-2">계정 승인 대기 중</h2>
+                                <p className="text-gray-600 mb-6">
+                                    회원가입이 완료되었습니다.<br/>
+                                    관리자가 계정을 승인하면 사용 가능합니다.
+                                </p>
+                                <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                                    <p className="text-sm text-gray-500">
+                                        승인 문의: <strong>greenfordkang@gmail.com</strong>
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={handleLogout}
+                                    className="w-full py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition"
+                                >
+                                    로그아웃
+                                </button>
+                            </div>
                         </div>
                     </div>
                 );
@@ -210,8 +359,8 @@
 
                     <div className="bg-white rounded-2xl card-shadow p-8">
                         <div className="flex mb-6 bg-gray-100 rounded-lg p-1">
-                            <button onClick={() => setMode('login')} className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${mode === 'login' ? 'bg-white shadow text-indigo-600' : 'text-gray-600'}`}>로그인</button>
-                            <button onClick={() => setMode('register')} className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${mode === 'register' ? 'bg-white shadow text-indigo-600' : 'text-gray-600'}`}>회원가입</button>
+                            <button onClick={() => setMode('login')} className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${mode === 'login' ? 'bg-white shadow text-[#007AFF]' : 'text-gray-600'}`}>로그인</button>
+                            <button onClick={() => setMode('register')} className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${mode === 'register' ? 'bg-white shadow text-[#007AFF]' : 'text-gray-600'}`}>회원가입</button>
                         </div>
 
                         {message.text && (
@@ -237,7 +386,7 @@
                                         <input type="password" name="password" value={formData.password} onChange={handleInputChange} placeholder="••••••••" className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg input-focus focus:border-indigo-500 outline-none transition" required />
                                     </div>
                                 </div>
-                                <button type="submit" disabled={loading} className="w-full py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2 transition">
+                                <button type="submit" disabled={loading} className="w-full py-3 bg-[#007AFF] text-white rounded-lg font-medium hover:bg-[#0056CC] disabled:opacity-50 flex items-center justify-center gap-2 transition">
                                     {loading ? <><Icons.Spinner /> 로그인 중...</> : '로그인'}
                                 </button>
                             </form>
@@ -267,7 +416,12 @@
                                     <label className="block text-sm font-medium text-gray-700 mb-1">비밀번호 확인</label>
                                     <input type="password" name="confirmPassword" value={formData.confirmPassword} onChange={handleInputChange} placeholder="비밀번호 재입력" className="w-full px-4 py-3 border border-gray-200 rounded-lg input-focus focus:border-indigo-500 outline-none transition" required />
                                 </div>
-                                <button type="submit" disabled={loading} className="w-full py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2 transition">
+                                <div className="bg-blue-50 p-3 rounded-lg">
+                                    <p className="text-sm text-blue-700">
+                                        ℹ️ 회원가입 후 관리자 승인이 필요합니다.
+                                    </p>
+                                </div>
+                                <button type="submit" disabled={loading} className="w-full py-3 bg-[#007AFF] text-white rounded-lg font-medium hover:bg-[#0056CC] disabled:opacity-50 flex items-center justify-center gap-2 transition">
                                     {loading ? <><Icons.Spinner /> 가입 중...</> : '회원가입'}
                                 </button>
                             </form>
@@ -286,15 +440,6 @@
                             <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
                                 <p className="text-sm text-blue-800 flex items-center gap-2">
                                     <Icons.Spinner /> Supabase 연결 중...
-                                </p>
-                            </div>
-                        )}
-
-                        {!supabaseClient && isSupabaseReady && (
-                            <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
-                                <p className="text-sm text-amber-800">
-                                    <strong>⚠️ Supabase 미설정</strong><br/>
-                                    login.html에서 SUPABASE_URL과 KEY를 설정하세요.
                                 </p>
                             </div>
                         )}

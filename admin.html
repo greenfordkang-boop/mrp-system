@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MRP 시스템 - 관리자</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <style>
+        :root {
+            --apple-gray: #F5F5F7;
+            --apple-blue: #007AFF;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-[#F5F5F7]">
+    <div id="root"></div>
+
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // ===== Supabase 설정 =====
+        const SUPABASE_URL = 'https://vnhjfbcufmbbhwevzunc.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZuaGpmYmN1Zm1iYmh3ZXZ6dW5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5MzE2NDEsImV4cCI6MjA4NTUwNzY0MX0.ZZFMYH172ByFDOpBNH_4ehsDNoKMqmLIvdhiCv_27Zo';
+        const ADMIN_EMAILS = ['greenfordkang@gmail.com'];
+
+        let supabaseClient = null;
+
+        const initSupabase = () => {
+            if (window.supabase && typeof window.supabase.createClient === 'function') {
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                return true;
+            }
+            return false;
+        };
+
+        // 아이콘 컴포넌트
+        const Icons = {
+            Users: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>,
+            Check: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>,
+            X: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>,
+            Shield: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>,
+            Edit: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
+            Eye: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>,
+            Clock: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+            Refresh: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>,
+            Home: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
+            Logout: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>,
+            Spinner: () => <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+        };
+
+        // 역할 배지 컴포넌트
+        const RoleBadge = ({ role }) => {
+            const styles = {
+                admin: 'bg-[#E8F4FF] text-[#007AFF]',
+                editor: 'bg-[#E8E8ED] text-[#1D1D1F]',
+                viewer: 'bg-[#F5F5F7] text-[#86868B]'
+            };
+            const labels = { admin: '관리자', editor: '에디터', viewer: '뷰어' };
+            return (
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[role] || styles.viewer}`}>
+                    {labels[role] || role}
+                </span>
+            );
+        };
+
+        // 상태 배지 컴포넌트
+        const StatusBadge = ({ status }) => {
+            const styles = {
+                approved: 'bg-[#E8F5E9] text-[#2E7D32]',
+                pending: 'bg-[#FFF8E1] text-[#F57C00]',
+                rejected: 'bg-[#FFEBEE] text-[#FF3B30]'
+            };
+            const labels = { approved: '승인됨', pending: '대기중', rejected: '거부됨' };
+            return (
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status] || styles.pending}`}>
+                    {labels[status] || status}
+                </span>
+            );
+        };
+
+        function App() {
+            const [loading, setLoading] = useState(true);
+            const [user, setUser] = useState(null);
+            const [users, setUsers] = useState([]);
+            const [filter, setFilter] = useState('all'); // all, pending, approved, rejected
+            const [searchTerm, setSearchTerm] = useState('');
+            const [actionLoading, setActionLoading] = useState(null);
+            const [message, setMessage] = useState({ type: '', text: '' });
+
+            // 초기화 및 권한 확인
+            useEffect(() => {
+                const init = async () => {
+                    // Supabase 로딩 대기
+                    let attempts = 0;
+                    while (!initSupabase() && attempts < 50) {
+                        await new Promise(r => setTimeout(r, 100));
+                        attempts++;
+                    }
+
+                    if (!supabaseClient) {
+                        setMessage({ type: 'error', text: 'Supabase 연결 실패' });
+                        setLoading(false);
+                        return;
+                    }
+
+                    // 세션 확인
+                    const { data: { session } } = await supabaseClient.auth.getSession();
+                    if (!session) {
+                        window.location.href = 'login.html';
+                        return;
+                    }
+
+                    // 관리자 권한 확인
+                    const isAdmin = ADMIN_EMAILS.includes(session.user.email.toLowerCase());
+                    if (!isAdmin) {
+                        setMessage({ type: 'error', text: '관리자 권한이 없습니다.' });
+                        setTimeout(() => { window.location.href = 'mrp.html'; }, 2000);
+                        return;
+                    }
+
+                    setUser(session.user);
+                    await loadUsers();
+                    setLoading(false);
+                };
+
+                init();
+            }, []);
+
+            // 사용자 목록 로드
+            const loadUsers = async () => {
+                try {
+                    const { data, error } = await supabaseClient
+                        .from('user_roles')
+                        .select('*')
+                        .order('created_at', { ascending: false });
+
+                    if (error) {
+                        console.error('사용자 목록 로드 오류:', error);
+                        // 테이블이 없으면 빈 배열
+                        setUsers([]);
+                        return;
+                    }
+
+                    setUsers(data || []);
+                } catch (e) {
+                    console.error('사용자 목록 로드 실패:', e);
+                    setUsers([]);
+                }
+            };
+
+            // 사용자 상태 변경 (승인/거부)
+            const updateUserStatus = async (userId, newStatus) => {
+                setActionLoading(userId);
+                try {
+                    const { error } = await supabaseClient
+                        .from('user_roles')
+                        .update({ status: newStatus, updated_at: new Date().toISOString() })
+                        .eq('user_id', userId);
+
+                    if (error) throw error;
+
+                    setMessage({ type: 'success', text: `사용자가 ${newStatus === 'approved' ? '승인' : '거부'}되었습니다.` });
+                    await loadUsers();
+                } catch (e) {
+                    console.error('상태 변경 오류:', e);
+                    setMessage({ type: 'error', text: '상태 변경 실패: ' + e.message });
+                } finally {
+                    setActionLoading(null);
+                }
+            };
+
+            // 사용자 역할 변경
+            const updateUserRole = async (userId, newRole) => {
+                setActionLoading(userId);
+                try {
+                    const { error } = await supabaseClient
+                        .from('user_roles')
+                        .update({ role: newRole, updated_at: new Date().toISOString() })
+                        .eq('user_id', userId);
+
+                    if (error) throw error;
+
+                    setMessage({ type: 'success', text: '역할이 변경되었습니다.' });
+                    await loadUsers();
+                } catch (e) {
+                    console.error('역할 변경 오류:', e);
+                    setMessage({ type: 'error', text: '역할 변경 실패: ' + e.message });
+                } finally {
+                    setActionLoading(null);
+                }
+            };
+
+            // 필터링된 사용자 목록
+            const filteredUsers = useMemo(() => {
+                let result = [...users];
+
+                // 상태 필터
+                if (filter !== 'all') {
+                    result = result.filter(u => u.status === filter);
+                }
+
+                // 검색 필터
+                if (searchTerm) {
+                    const term = searchTerm.toLowerCase();
+                    result = result.filter(u =>
+                        u.email?.toLowerCase().includes(term) ||
+                        u.name?.toLowerCase().includes(term)
+                    );
+                }
+
+                return result;
+            }, [users, filter, searchTerm]);
+
+            // 통계
+            const stats = useMemo(() => ({
+                total: users.length,
+                pending: users.filter(u => u.status === 'pending').length,
+                approved: users.filter(u => u.status === 'approved').length,
+                rejected: users.filter(u => u.status === 'rejected').length
+            }), [users]);
+
+            const handleLogout = async () => {
+                await supabaseClient.auth.signOut();
+                localStorage.clear();
+                window.location.href = 'login.html';
+            };
+
+            if (loading) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+                        <div className="text-center">
+                            <Icons.Spinner />
+                            <p className="mt-2 text-gray-600">로딩 중...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-gray-100">
+                    {/* 헤더 */}
+                    <header className="gradient-bg text-white py-4 px-6 shadow-lg">
+                        <div className="max-w-6xl mx-auto flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <Icons.Shield />
+                                <h1 className="text-xl font-bold">MRP 관리자</h1>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <span className="text-sm text-white/80">{user?.email}</span>
+                                <a href="mrp.html" className="p-2 hover:bg-white/10 rounded-lg transition" title="MRP 시스템">
+                                    <Icons.Home />
+                                </a>
+                                <button onClick={handleLogout} className="p-2 hover:bg-white/10 rounded-lg transition" title="로그아웃">
+                                    <Icons.Logout />
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-6xl mx-auto p-6">
+                        {/* 메시지 */}
+                        {message.text && (
+                            <div className={`mb-6 p-4 rounded-lg flex items-center gap-2 ${message.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
+                                {message.type === 'error' ? <Icons.X /> : <Icons.Check />}
+                                <span>{message.text}</span>
+                                <button onClick={() => setMessage({ type: '', text: '' })} className="ml-auto">
+                                    <Icons.X />
+                                </button>
+                            </div>
+                        )}
+
+                        {/* 통계 카드 */}
+                        <div className="grid grid-cols-4 gap-4 mb-6">
+                            <div className="bg-white rounded-xl p-4 shadow cursor-pointer hover:shadow-md transition" onClick={() => setFilter('all')}>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                                        <Icons.Users />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-gray-500">전체 사용자</p>
+                                        <p className="text-2xl font-bold text-blue-600">{stats.total}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="bg-white rounded-xl p-4 shadow cursor-pointer hover:shadow-md transition" onClick={() => setFilter('pending')}>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center text-yellow-600">
+                                        <Icons.Clock />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-gray-500">승인 대기</p>
+                                        <p className="text-2xl font-bold text-yellow-600">{stats.pending}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="bg-white rounded-xl p-4 shadow cursor-pointer hover:shadow-md transition" onClick={() => setFilter('approved')}>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-green-600">
+                                        <Icons.Check />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-gray-500">승인됨</p>
+                                        <p className="text-2xl font-bold text-green-600">{stats.approved}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="bg-white rounded-xl p-4 shadow cursor-pointer hover:shadow-md transition" onClick={() => setFilter('rejected')}>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center text-red-600">
+                                        <Icons.X />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-gray-500">거부됨</p>
+                                        <p className="text-2xl font-bold text-red-600">{stats.rejected}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 사용자 목록 */}
+                        <div className="bg-white rounded-xl shadow overflow-hidden">
+                            <div className="p-4 border-b flex items-center justify-between">
+                                <h2 className="text-lg font-bold text-gray-800">사용자 관리</h2>
+                                <div className="flex items-center gap-3">
+                                    <input
+                                        type="text"
+                                        placeholder="이메일 또는 이름 검색..."
+                                        value={searchTerm}
+                                        onChange={e => setSearchTerm(e.target.value)}
+                                        className="px-3 py-2 border rounded-lg text-sm w-64"
+                                    />
+                                    <button onClick={loadUsers} className="p-2 hover:bg-gray-100 rounded-lg transition" title="새로고침">
+                                        <Icons.Refresh />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 필터 탭 */}
+                            <div className="px-4 py-2 bg-gray-50 border-b flex gap-2">
+                                {[
+                                    { key: 'all', label: '전체' },
+                                    { key: 'pending', label: '대기중' },
+                                    { key: 'approved', label: '승인됨' },
+                                    { key: 'rejected', label: '거부됨' }
+                                ].map(f => (
+                                    <button
+                                        key={f.key}
+                                        onClick={() => setFilter(f.key)}
+                                        className={`px-3 py-1 rounded text-sm transition ${filter === f.key ? 'bg-[#007AFF] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
+                                    >
+                                        {f.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* 테이블 */}
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">이메일</th>
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">역할</th>
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">상태</th>
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">가입일</th>
+                                            <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">액션</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y">
+                                        {filteredUsers.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
+                                                    {users.length === 0 ? '등록된 사용자가 없습니다.' : '검색 결과가 없습니다.'}
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            filteredUsers.map(u => (
+                                                <tr key={u.user_id} className="hover:bg-gray-50">
+                                                    <td className="px-4 py-3">
+                                                        <div className="font-medium text-gray-800">{u.email}</div>
+                                                        {u.name && <div className="text-sm text-gray-500">{u.name}</div>}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <select
+                                                            value={u.role}
+                                                            onChange={e => updateUserRole(u.user_id, e.target.value)}
+                                                            disabled={actionLoading === u.user_id || ADMIN_EMAILS.includes(u.email?.toLowerCase())}
+                                                            className="px-2 py-1 border rounded text-sm bg-white disabled:opacity-50"
+                                                        >
+                                                            <option value="viewer">뷰어</option>
+                                                            <option value="editor">에디터</option>
+                                                            <option value="admin">관리자</option>
+                                                        </select>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <StatusBadge status={u.status} />
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm text-gray-500">
+                                                        {u.created_at ? new Date(u.created_at).toLocaleDateString('ko-KR') : '-'}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            {actionLoading === u.user_id ? (
+                                                                <Icons.Spinner />
+                                                            ) : (
+                                                                <>
+                                                                    {u.status !== 'approved' && (
+                                                                        <button
+                                                                            onClick={() => updateUserStatus(u.user_id, 'approved')}
+                                                                            className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200 transition"
+                                                                            title="승인"
+                                                                        >
+                                                                            승인
+                                                                        </button>
+                                                                    )}
+                                                                    {u.status !== 'rejected' && !ADMIN_EMAILS.includes(u.email?.toLowerCase()) && (
+                                                                        <button
+                                                                            onClick={() => updateUserStatus(u.user_id, 'rejected')}
+                                                                            className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200 transition"
+                                                                            title="거부"
+                                                                        >
+                                                                            거부
+                                                                        </button>
+                                                                    )}
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Supabase 테이블 생성 안내 */}
+                        <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4">
+                            <h3 className="font-bold text-blue-800 mb-2">📋 Supabase 테이블 설정</h3>
+                            <p className="text-sm text-blue-700 mb-3">
+                                user_roles 테이블이 없으면 Supabase SQL Editor에서 아래 쿼리를 실행하세요:
+                            </p>
+                            <pre className="bg-white p-3 rounded text-xs overflow-x-auto border">
+{`CREATE TABLE user_roles (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL UNIQUE,
+  email TEXT NOT NULL,
+  name TEXT,
+  role TEXT DEFAULT 'viewer' CHECK (role IN ('admin', 'editor', 'viewer')),
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- RLS 정책 (모든 사용자가 읽기/쓰기 가능하도록 설정)
+ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all" ON user_roles FOR ALL USING (true) WITH CHECK (true);`}
+                            </pre>
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
