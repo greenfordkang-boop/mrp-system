@@ -1324,6 +1324,11 @@
                 const bomParentSet = new Set();
 
                 // rawData.bom이 객체(v6형식)인지 배열(Excel형식)인지 확인
+                console.log('🔍 BOM 데이터 형식:', Array.isArray(rawData.bom) ? 'Array(Excel)' : typeof rawData.bom, '길이/키수:', Array.isArray(rawData.bom) ? rawData.bom.length : Object.keys(rawData.bom).length);
+                if (Array.isArray(rawData.bom) && rawData.bom.length > 0) {
+                    console.log('🔍 BOM 첫 행 컬럼명:', Object.keys(rawData.bom[0]));
+                    console.log('🔍 BOM 첫 행 자품명 값:', rawData.bom[0]['자품명'], '| 자품번:', rawData.bom[0]['자품번']);
+                }
                 if (Array.isArray(rawData.bom)) {
                     // Excel 파일에서 온 배열 형식
                     rawData.bom.forEach(row => {
@@ -1336,7 +1341,7 @@
                         bomParentSet.add(parent);
                         bomRelations[parent].push({
                             childPn: child,
-                            childName: row['자품명'] || row['자재명'] || row['partName'] || row['n'] || child,
+                            childName: row['자품명'] || row['자재명'] || row['품명'] || row['품목명'] || row['부품명'] || row['자재품명'] || row['partName'] || row['name'] || row['n'] || child,
                             level, qty,
                             supplier: row['협력업체'] || row['협력사'] || row['supplier'] || row['s'] || '(미지정)',
                             partType: row['부품유형'] || row['품목유형'] || row['partType'] || row['t'] || ''
@@ -1348,7 +1353,7 @@
                         bomParentSet.add(parent);
                         bomRelations[parent] = (children || []).map(child => ({
                             childPn: child.c || child.childPn || child['자품번'],
-                            childName: child.n || child.childName || child['자재명'] || child.c,
+                            childName: child.n || child.childName || child['자품명'] || child['자재명'] || child['품명'] || child['품목명'] || child['부품명'] || child.c,
                             level: child.l || child.level || child['레벨'] || 1,
                             qty: child.u || child.usage || child['소요량'] || 1,
                             supplier: child.s || child.supplier || child['협력사'] || '(미지정)'
